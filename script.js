@@ -50,7 +50,10 @@ const state = {
   chartRefreshTimer: null,
   chartRequestId: 0,
   chartSocket: null,
-  chartSocketKey: ""
+  chartSocketKey: "",
+  dashboardRefreshTimer: null,
+  listingRefreshTimer: null,
+  dashboardLoading: false
 };
 
 function setStatus(text) {
@@ -720,6 +723,11 @@ async function loadListingFeed() {
 }
 
 async function loadDashboard() {
+  if (state.dashboardLoading) {
+    return;
+  }
+
+  state.dashboardLoading = true;
   refreshButton.disabled = true;
   setStatus("加载中...");
 
@@ -850,8 +858,33 @@ async function loadDashboard() {
     renderBottomFeeds();
     loadListingFeed();
   } finally {
+    state.dashboardLoading = false;
     refreshButton.disabled = false;
   }
+}
+
+function startDashboardAutoRefresh() {
+  if (state.dashboardRefreshTimer) {
+    window.clearInterval(state.dashboardRefreshTimer);
+  }
+
+  state.dashboardRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      loadDashboard();
+    }
+  }, 5000);
+}
+
+function startListingAutoRefresh() {
+  if (state.listingRefreshTimer) {
+    window.clearInterval(state.listingRefreshTimer);
+  }
+
+  state.listingRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      loadListingFeed();
+    }
+  }, 5 * 60 * 1000);
 }
 
 refreshButton.addEventListener("click", loadDashboard);
@@ -874,4 +907,13 @@ document.addEventListener("click", (event) => {
   }
 });
 
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    loadDashboard();
+    loadListingFeed();
+  }
+});
+
 loadDashboard();
+startDashboardAutoRefresh();
+startListingAutoRefresh();
