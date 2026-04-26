@@ -359,20 +359,20 @@ function renderTradingViewChart(row) {
 
   tradingviewPanel.innerHTML = `
     <div class="tv-single">
-      <div class="tv-launcher">
-        <div class="tv-hero">
-          <div class="tv-kicker">当前推荐查看</div>
-          <div class="tv-main">${row.baseAsset} 永续</div>
-          <div class="tv-meta">${row.symbol} · 你将打开完整 TradingView 页面，可直接搜索标的和切换周期</div>
+      <div class="tv-toolbar">
+        <span class="tv-title">${row.baseAsset} 永续</span>
+        <span class="tv-subtitle">${row.symbol} · 可搜索标的 / 可切周期</span>
+      </div>
+
+      <div class="tv-chart-wrap">
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget" id="tradingviewWidget"></div>
         </div>
+      </div>
 
-        <div class="tv-actions">
-          <a class="tv-button" href="${getTradingViewPageUrl(row.symbol)}" target="_blank" rel="noreferrer">打开完整K线</a>
-          <a class="tv-button secondary" href="https://www.tradingview.com/chart/" target="_blank" rel="noreferrer">打开 TradingView 首页图表</a>
-        </div>
-
-        ${tipHtml}
-
+      <div class="tv-actions">
+        <a class="tv-button" href="${getTradingViewPageUrl(row.symbol)}" target="_blank" rel="noreferrer">打开完整K线</a>
+        <a class="tv-button secondary" href="https://www.tradingview.com/chart/" target="_blank" rel="noreferrer">打开 TradingView 首页图表</a>
         <div class="tv-chip-list">
           ${uniqueSymbols
             .map(
@@ -385,8 +385,44 @@ function renderTradingViewChart(row) {
             .join("")}
         </div>
       </div>
+
+      ${tipHtml}
     </div>
   `;
+
+  const widgetContainer = document.getElementById("tradingviewWidget");
+  if (!widgetContainer) {
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+  script.async = true;
+  script.textContent = JSON.stringify({
+    autosize: true,
+    symbol: getTradingViewSymbol(row.symbol),
+    interval: "15",
+    timezone: "Asia/Shanghai",
+    theme: "light",
+    style: "1",
+    locale: "zh_CN",
+    withdateranges: true,
+    hide_side_toolbar: false,
+    hide_top_toolbar: false,
+    allow_symbol_change: true,
+    save_image: true,
+    calendar: false,
+    studies: ["Volume@tv-basicstudies"],
+    support_host: "https://www.tradingview.com"
+  });
+  widgetContainer.innerHTML = "";
+  widgetContainer.appendChild(script);
+
+  window.setTimeout(() => {
+    if (!widgetContainer.childElementCount) {
+      widgetContainer.innerHTML = `<div class="tv-fallback">图表未成功加载，请使用下方按钮打开完整 TradingView</div>`;
+    }
+  }, 5000);
 }
 
 function updateTradingViewSelection(symbol) {
@@ -489,12 +525,63 @@ function renderBottomFeeds() {
   if (listingFeed) {
     listingFeed.innerHTML = `
       <div class="feed-item">
-        <div class="feed-title">预留上新通知位：后续可接币安上币、合约新增、观察区变更提醒。</div>
-        <div class="feed-meta">占位内容 · 待接接口</div>
+        <div class="feed-title">正在尝试读取多交易所上新公告。</div>
+        <div class="feed-meta">当前优先接入 Binance / OKX / Bybit</div>
       </div>
+    `;
+  }
+}
+
+async function loadListingFeed() {
+  if (!listingFeed) {
+    return;
+  }
+
+  if (window.location.protocol === "file:") {
+    listingFeed.innerHTML = `
       <div class="feed-item">
-        <div class="feed-title">预留交易对变更位：适合显示新开永续、下架公告、保证金规则变化。</div>
-        <div class="feed-meta">占位内容 · 待接接口</div>
+        <div class="feed-title">本地 file:// 环境无法调用 Vercel API。</div>
+        <div class="feed-meta">上线后会从 Binance / OKX / Bybit 公告自动拉取上新通知</div>
+      </div>
+    `;
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/new-listings-feed");
+    if (!response.ok) {
+      throw new Error(`feed status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+
+    if (!items.length) {
+      listingFeed.innerHTML = `
+        <div class="feed-item">
+          <div class="feed-title">暂未获取到多交易所上新公告。</div>
+          <div class="feed-meta">当前公告页可能暂无匹配的新上币/新合约内容</div>
+        </div>
+      `;
+      return;
+    }
+
+    listingFeed.innerHTML = items
+      .slice(0, 6)
+      .map(
+        (item) => `
+          <a class="feed-item" href="${item.link}" target="_blank" rel="noreferrer">
+            <div class="feed-title">${item.title}</div>
+            <div class="feed-meta">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
+          </a>
+        `
+      )
+      .join("");
+  } catch (error) {
+    listingFeed.innerHTML = `
+      <div class="feed-item">
+        <div class="feed-title">暂时无法读取多交易所上新公告。</div>
+        <div class="feed-meta">接口失败后会保留这个占位提示</div>
       </div>
     `;
   }
@@ -596,6 +683,7 @@ async function loadDashboard() {
     renderShockList(shocks);
     renderVolumeAlertList(volumeAlerts);
     renderBottomFeeds();
+    loadListingFeed();
 
     updateTime();
     setStatus(`已更新 ${detailedRows.length} 个合约`);
@@ -616,6 +704,7 @@ async function loadDashboard() {
         `<div class="shock-item"><div class="shock-left"><strong>加载失败</strong><span>无法获取放量列表</span></div></div>`;
     }
     renderBottomFeeds();
+    loadListingFeed();
   } finally {
     refreshButton.disabled = false;
   }
