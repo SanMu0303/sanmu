@@ -25,10 +25,15 @@
         </div>
         <div class="toolbar-meta">
           <button class="ghost-button" id="refreshButton">刷新数据</button>
+          <span id="refreshState">自动刷新：5秒</span>
           <span id="fetchStatus">等待加载</span>
           <span id="updateTime"></span>
         </div>
       </header>
+
+      <section class="volume-strip-panel">
+        <div class="volume-strip" id="volumeTopStrip"></div>
+      </section>
 
       <main class="dashboard-grid">
         <section class="board-panel" id="heatPanel">
@@ -50,14 +55,32 @@
             <div class="panel-header">
               <h2>价格异动</h2>
             </div>
-            <div class="panel-body" id="shockList"></div>
+            <div class="panel-body">
+              <div id="shockList"></div>
+              <div class="history-block">
+                <div class="history-header">
+                  <div class="history-title">历史留存</div>
+                  <button class="history-clear-btn" type="button" data-clear-history="shock">清空</button>
+                </div>
+                <div id="shockHistoryList"></div>
+              </div>
+            </div>
           </div>
           <div class="divider"></div>
           <div class="sub-panel">
             <div class="panel-header">
               <h2>异常放量</h2>
             </div>
-            <div class="panel-body" id="volumeAlertList"></div>
+            <div class="panel-body">
+              <div id="volumeAlertList"></div>
+              <div class="history-block">
+                <div class="history-header">
+                  <div class="history-title">历史留存</div>
+                  <button class="history-clear-btn" type="button" data-clear-history="volume">清空</button>
+                </div>
+                <div id="volumeHistoryList"></div>
+              </div>
+            </div>
           </div>
         </aside>
 

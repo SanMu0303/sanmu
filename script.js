@@ -34,30 +34,49 @@ const CHAIN_MAP = {
 };
 
 const refreshButton = document.getElementById("refreshButton");
+const refreshStateNode = document.getElementById("refreshState");
 const updateTimeNode = document.getElementById("updateTime");
 const fetchStatusNode = document.getElementById("fetchStatus");
 const tradingviewPanel = document.getElementById("tradingviewPanel");
+const volumeTopStrip = document.getElementById("volumeTopStrip");
 const volumeAlertList = document.getElementById("volumeAlertList");
+const shockHistoryList = document.getElementById("shockHistoryList");
+const volumeHistoryList = document.getElementById("volumeHistoryList");
 const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
+const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
+const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
 const state = {
   rows: [],
   selectedChartSymbol: "",
   selectedChartInterval: "15m",
   chart: null,
   candleSeries: null,
+  volumeSeries: null,
+  currentCandleOpenTime: 0,
+  latestChartPrice: null,
   symbolMetaMap: new Map(),
   chartRefreshTimer: null,
+  chartWatchdogTimer: null,
   chartRequestId: 0,
   chartSocket: null,
   chartSocketKey: "",
+  chartLastMessageAt: 0,
   dashboardRefreshTimer: null,
   listingRefreshTimer: null,
-  dashboardLoading: false
+  dashboardLoading: false,
+  activeShockSymbols: new Set(),
+  activeVolumeSymbols: new Set()
 };
 
 function setStatus(text) {
   fetchStatusNode.textContent = text;
+}
+
+function setRefreshState(text) {
+  if (refreshStateNode) {
+    refreshStateNode.textContent = text;
+  }
 }
 
 function updateTime() {
@@ -75,6 +94,13 @@ function formatTime(value) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(
     date.getSeconds()
   ).padStart(2, "0")}`;
+}
+
+function formatShortDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(
+    date.getHours()
+  ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function formatFundingInterval(hours) {
@@ -95,12 +121,14 @@ function formatPrice(value) {
   })}`;
 }
 
-function getTickSize(symbol) {
-  return Number(state.symbolMetaMap.get(symbol)?.tickSize || 0);
+function getTickSizeMeta(symbol) {
+  return state.symbolMetaMap.get(symbol) || null;
 }
 
 function getPriceFormatConfig(symbol) {
-  const tickSize = getTickSize(symbol);
+  const tickMeta = getTickSizeMeta(symbol);
+  const tickSizeRaw = tickMeta?.tickSizeRaw || "";
+  const tickSize = Number(tickMeta?.tickSize || 0);
   if (!Number.isFinite(tickSize) || tickSize <= 0) {
     return {
       precision: 4,
@@ -108,7 +136,7 @@ function getPriceFormatConfig(symbol) {
     };
   }
 
-  const normalized = tickSize.toString();
+  const normalized = tickSizeRaw || tickSize.toString();
   const decimalPart = normalized.includes(".") ? normalized.split(".")[1].replace(/0+$/, "") : "";
   const precision = decimalPart.length;
 
@@ -116,6 +144,19 @@ function getPriceFormatConfig(symbol) {
     precision,
     minMove: tickSize
   };
+}
+
+function formatChartAxisPrice(symbol, value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  const { precision } = getPriceFormatConfig(symbol);
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+    useGrouping: false
+  });
 }
 
 function formatPercent(value, digits = 2) {
@@ -165,6 +206,34 @@ function getTradingViewPageUrl(symbol) {
   return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`BINANCE:${symbol}.P`)}`;
 }
 
+function getIntervalDurationMs(interval) {
+  const intervalMap = {
+    "5m": 5 * 60 * 1000,
+    "15m": 15 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "4h": 4 * 60 * 60 * 1000,
+    "1d": 24 * 60 * 60 * 1000
+  };
+  return intervalMap[interval] || 15 * 60 * 1000;
+}
+
+function formatCountdown(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return "00:00";
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function getHeatScore(row) {
   const volumeScore = Math.min(Math.max(Math.log10(Math.max(row.quoteVolume, 1)) * 12, 0), 100);
   const momentumScore = Math.min(Math.max((row.change24h + 10) * 4, 0), 100);
@@ -202,6 +271,8 @@ async function fetchKlineSnapshot(symbol, interval) {
   return {
     previousVolume: Number(previous?.[5] || 0),
     latestVolume: Number(latest?.[5] || 0),
+    previousQuoteVolume: Number(previous?.[7] || 0),
+    latestQuoteVolume: Number(latest?.[7] || 0),
     latestChangePercent
   };
 }
@@ -213,7 +284,8 @@ async function fetchChartCandles(symbol, interval, limit = 240) {
     open: Number(item[1]),
     high: Number(item[2]),
     low: Number(item[3]),
-    close: Number(item[4])
+    close: Number(item[4]),
+    volume: Number(item[7] || item[5] || 0)
   }));
 }
 
@@ -349,6 +421,30 @@ function renderTable(targetId, rows, type) {
   target.innerHTML = `<div class="table table-${type}">${getHeaderTemplate(type)}${content}</div>`;
 }
 
+function renderVolumeTopStrip(rows) {
+  if (!volumeTopStrip) {
+    return;
+  }
+
+  if (!rows.length) {
+    volumeTopStrip.innerHTML = `<div class="volume-chip"><div class="volume-chip-symbol">暂无数据</div></div>`;
+    return;
+  }
+
+  volumeTopStrip.innerHTML = rows
+    .slice(0, 10)
+    .map(
+      (row) => `
+        <button class="volume-chip symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
+          <div class="volume-chip-price">${formatPrice(row.lastPrice)}</div>
+          <div class="volume-chip-symbol">${row.baseAsset}</div>
+          <div class="volume-chip-change ${getDeltaClass(row.change24h)}">${formatPercent(row.change24h)}</div>
+        </button>
+      `
+    )
+    .join("");
+}
+
 function renderTradingViewChart(row) {
   if (!tradingviewPanel) {
     return;
@@ -405,14 +501,17 @@ async function loadEmbeddedChart(symbol, interval) {
     if (requestId !== state.chartRequestId) {
       return;
     }
+    state.currentCandleOpenTime = data.length ? Number(data[data.length - 1].time) * 1000 : 0;
+    state.latestChartPrice = data.length ? Number(data[data.length - 1].close) : null;
 
-    const { createChart, CandlestickSeries, ColorType } = window.LightweightCharts;
+    const { createChart, CandlestickSeries, HistogramSeries, ColorType } = window.LightweightCharts;
     const priceFormat = getPriceFormatConfig(symbol);
 
     if (state.chart) {
       state.chart.remove();
       state.chart = null;
       state.candleSeries = null;
+      state.volumeSeries = null;
     }
 
     state.chart = createChart(container, {
@@ -421,6 +520,10 @@ async function loadEmbeddedChart(symbol, interval) {
       layout: {
         background: { type: ColorType.Solid, color: "#ffffff" },
         textColor: "#475569"
+      },
+      localization: {
+        locale: "en-US",
+        priceFormatter: (price) => formatChartAxisPrice(symbol, price)
       },
       grid: {
         vertLines: { color: "#eef2f7" },
@@ -451,6 +554,26 @@ async function loadEmbeddedChart(symbol, interval) {
       }
     });
     state.candleSeries.setData(data);
+    state.volumeSeries = state.chart.addSeries(HistogramSeries, {
+      priceFormat: {
+        type: "volume"
+      },
+      priceScaleId: "",
+      color: "#cbd5e1"
+    });
+    state.volumeSeries.priceScale().applyOptions({
+      scaleMargins: {
+        top: 0.8,
+        bottom: 0
+      }
+    });
+    state.volumeSeries.setData(
+      data.map((item) => ({
+        time: item.time,
+        value: item.volume,
+        color: item.close >= item.open ? "rgba(34, 179, 93, 0.45)" : "rgba(240, 101, 101, 0.45)"
+      }))
+    );
     state.chart.timeScale().fitContent();
 
     window.requestAnimationFrame(() => {
@@ -472,12 +595,20 @@ function stopChartRealtime() {
     state.chartRefreshTimer = null;
   }
 
+  if (state.chartWatchdogTimer) {
+    window.clearInterval(state.chartWatchdogTimer);
+    state.chartWatchdogTimer = null;
+  }
+
   if (state.chartSocket) {
     state.chartSocket.close();
     state.chartSocket = null;
   }
 
   state.chartSocketKey = "";
+  state.chartLastMessageAt = 0;
+  state.currentCandleOpenTime = 0;
+  state.latestChartPrice = null;
 }
 
 async function refreshCurrentChart() {
@@ -491,7 +622,18 @@ async function refreshCurrentChart() {
     if (requestId !== state.chartRequestId || !state.candleSeries) {
       return;
     }
+    state.currentCandleOpenTime = data.length ? Number(data[data.length - 1].time) * 1000 : 0;
+    state.latestChartPrice = data.length ? Number(data[data.length - 1].close) : null;
     state.candleSeries.setData(data);
+    if (state.volumeSeries) {
+      state.volumeSeries.setData(
+        data.map((item) => ({
+          time: item.time,
+          value: item.volume,
+          color: item.close >= item.open ? "rgba(34, 179, 93, 0.45)" : "rgba(240, 101, 101, 0.45)"
+        }))
+      );
+    }
   } catch (error) {
     console.error("refresh chart failed", error);
   }
@@ -502,12 +644,21 @@ function startChartRealtime(symbol, interval) {
 
   const socketKey = `${symbol}:${interval}`;
   state.chartSocketKey = socketKey;
+  state.chartLastMessageAt = Date.now();
 
   const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
 
   try {
     const socket = new WebSocket(wsUrl);
     state.chartSocket = socket;
+
+    socket.addEventListener("open", () => {
+      if (state.chartSocketKey !== socketKey) {
+        return;
+      }
+      state.chartLastMessageAt = Date.now();
+      refreshCurrentChart();
+    });
 
     socket.addEventListener("message", (event) => {
       if (state.chartSocketKey !== socketKey || !state.candleSeries) {
@@ -521,6 +672,10 @@ function startChartRealtime(symbol, interval) {
           return;
         }
 
+        state.chartLastMessageAt = Date.now();
+        state.currentCandleOpenTime = Number(k.t);
+        state.latestChartPrice = Number(k.c);
+
         state.candleSeries.update({
           time: Math.floor(Number(k.t) / 1000),
           open: Number(k.o),
@@ -528,6 +683,13 @@ function startChartRealtime(symbol, interval) {
           low: Number(k.l),
           close: Number(k.c)
         });
+        if (state.volumeSeries) {
+          state.volumeSeries.update({
+            time: Math.floor(Number(k.t) / 1000),
+            value: Number(k.q || k.v || 0),
+            color: Number(k.c) >= Number(k.o) ? "rgba(34, 179, 93, 0.45)" : "rgba(240, 101, 101, 0.45)"
+          });
+        }
       } catch (error) {
         console.error("chart websocket parse failed", error);
       }
@@ -552,6 +714,23 @@ function startChartRealtime(symbol, interval) {
         console.error("chart websocket close failed", error);
       }
     });
+
+    state.chartWatchdogTimer = window.setInterval(() => {
+      if (state.chartSocketKey !== socketKey) {
+        return;
+      }
+
+      const stalledFor = Date.now() - state.chartLastMessageAt;
+      if (stalledFor < 10000) {
+        return;
+      }
+
+      try {
+        socket.close();
+      } catch (error) {
+        console.error("chart websocket watchdog close failed", error);
+      }
+    }, 4000);
   } catch (error) {
     console.error("chart websocket init failed", error);
     state.chartRefreshTimer = window.setInterval(() => {
@@ -577,6 +756,25 @@ function updateTradingViewSelection(symbol) {
   if (targetPanel) {
     targetPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+}
+
+function ensureChartSelection(rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return;
+  }
+
+  const selectedRow = rows.find((row) => row.symbol === state.selectedChartSymbol);
+  if (selectedRow) {
+    return;
+  }
+
+  const fallbackRow = [...rows].sort((a, b) => b.heatScore - a.heatScore)[0];
+  if (!fallbackRow) {
+    return;
+  }
+
+  state.selectedChartSymbol = fallbackRow.symbol;
+  renderTradingViewChart(fallbackRow);
 }
 
 function renderShockList(rows) {
@@ -609,6 +807,69 @@ function renderShockList(rows) {
   `;
 }
 
+function loadHistory(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveHistory(key, items) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(items.slice(0, 50)));
+  } catch (error) {
+    console.error("save history failed", error);
+  }
+}
+
+function updateHistory(records, type) {
+  const key = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
+  const existing = loadHistory(key);
+  const merged = [...records, ...existing].slice(0, 50);
+  saveHistory(key, merged);
+  renderHistory(type);
+}
+
+function clearHistory(type) {
+  const key = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
+  try {
+    window.localStorage.removeItem(key);
+  } catch (error) {
+    console.error("clear history failed", error);
+  }
+  renderHistory(type);
+}
+
+function renderHistory(type) {
+  const target = type === "shock" ? shockHistoryList : volumeHistoryList;
+  if (!target) {
+    return;
+  }
+
+  const key = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
+  const items = loadHistory(key);
+
+  if (!items.length) {
+    target.innerHTML = `<div class="history-item"><strong>暂无留存</strong><span class="history-time">等待触发</span></div>`;
+    return;
+  }
+
+  target.innerHTML = `<div class="history-list">${items
+    .slice(0, 6)
+    .map(
+      (item) => `
+        <div class="history-item">
+          <div><strong>${item.symbol}</strong> ${item.detail}</div>
+          <span class="history-time">${item.timeText}</span>
+        </div>
+      `
+    )
+    .join("")}</div>`;
+}
+
 function renderVolumeAlertList(rows) {
   if (!volumeAlertList) {
     return;
@@ -632,8 +893,8 @@ function renderVolumeAlertList(rows) {
               <div class="shock-right">
                 <strong class="up">${row.volumeMultiple.toFixed(2)}x</strong>
                 <span class="${getDeltaClass(row.volumeKlineChange)}">K线涨跌 ${formatPercent(row.volumeKlineChange)}</span>
-                <span>15m现量 ${formatCompact(row.latest15mVolume)}</span>
-                <span>前量 ${formatCompact(row.previous15mVolume)}</span>
+                <span>15m现量 ${formatCompact(row.latest15mQuoteVolume)} USDT</span>
+                <span>前量 ${formatCompact(row.previous15mQuoteVolume)} USDT</span>
               </div>
             </div>
           `
@@ -752,10 +1013,12 @@ async function loadDashboard() {
     state.symbolMetaMap = new Map(
       symbols.map((item) => {
         const priceFilter = (item.filters || []).find((filter) => filter.filterType === "PRICE_FILTER");
+        const tickSizeRaw = priceFilter?.tickSize || "0.0001";
         return [
           item.symbol,
           {
-            tickSize: Number(priceFilter?.tickSize || 0.0001)
+            tickSize: Number(tickSizeRaw),
+            tickSizeRaw
           }
         ];
       })
@@ -797,6 +1060,8 @@ async function loadDashboard() {
           fundingCountdownText: formatFundingInterval(row.fundingIntervalHours),
           previous15mVolume: kline15m.previousVolume,
           latest15mVolume: kline15m.latestVolume,
+          previous15mQuoteVolume: kline15m.previousQuoteVolume,
+          latest15mQuoteVolume: kline15m.latestQuoteVolume,
           volumeKlineChange: kline15m.latestChangePercent
         };
 
@@ -808,9 +1073,7 @@ async function loadDashboard() {
     );
 
     const heatTop = [...detailedRows].sort((a, b) => b.heatScore - a.heatScore).slice(0, 10);
-    const defaultChartRow =
-      detailedRows.find((row) => row.symbol === state.selectedChartSymbol) ||
-      [...detailedRows].sort((a, b) => b.heatScore - a.heatScore)[0];
+    const volumeTop = [...detailedRows].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 10);
     const gainers = [...detailedRows].sort((a, b) => b.change24h - a.change24h).slice(0, 5);
     const losers = [...detailedRows].sort((a, b) => a.change24h - b.change24h).slice(0, 5);
     const positiveFunding = [...detailedRows].sort((a, b) => b.fundingRate - a.fundingRate).slice(0, 5);
@@ -824,21 +1087,50 @@ async function loadDashboard() {
       .sort((a, b) => b.volumeMultiple - a.volumeMultiple)
       .slice(0, 12);
 
+    const shockRecords = shocks
+      .filter((row) => !state.activeShockSymbols.has(row.symbol))
+      .map((row) => ({
+        symbol: row.baseAsset,
+        detail: `${formatPercent(row.change5m)} / 24H ${formatPercent(row.change24h)}`,
+        timeText: formatShortDateTime(new Date())
+      }));
+    const volumeRecords = volumeAlerts
+      .filter((row) => !state.activeVolumeSymbols.has(row.symbol))
+      .map((row) => ({
+        symbol: row.baseAsset,
+        detail: `${row.volumeMultiple.toFixed(2)}x / ${formatPercent(row.volumeKlineChange)}`,
+        timeText: formatShortDateTime(new Date())
+      }));
+
+    state.activeShockSymbols = new Set(shocks.map((row) => row.symbol));
+    state.activeVolumeSymbols = new Set(volumeAlerts.map((row) => row.symbol));
+
     state.rows = detailedRows;
-    state.selectedChartSymbol = defaultChartRow ? defaultChartRow.symbol : "";
+    renderVolumeTopStrip(volumeTop);
     renderTable("heatTable", heatTop, "heat");
-    renderTradingViewChart(defaultChartRow);
     renderTable("gainersTable", gainers, "movers");
     renderTable("losersTable", losers, "movers");
     renderTable("positiveFundingTable", positiveFunding, "funding");
     renderTable("negativeFundingTable", negativeFunding, "funding");
     renderShockList(shocks);
     renderVolumeAlertList(volumeAlerts);
+    ensureChartSelection(detailedRows);
+    if (shockRecords.length) {
+      updateHistory(shockRecords, "shock");
+    } else {
+      renderHistory("shock");
+    }
+    if (volumeRecords.length) {
+      updateHistory(volumeRecords, "volume");
+    } else {
+      renderHistory("volume");
+    }
     renderBottomFeeds();
     loadListingFeed();
 
     updateTime();
     setStatus(`已更新 ${detailedRows.length} 个合约`);
+    setRefreshState(`自动刷新：5秒 · 上次 ${formatTime(new Date())}`);
   } catch (error) {
     console.error(error);
     setStatus("加载失败");
@@ -846,6 +1138,9 @@ async function loadDashboard() {
     ["heatTable", "gainersTable", "losersTable", "positiveFundingTable", "negativeFundingTable"].forEach((id) => {
       document.getElementById(id).innerHTML = failHtml;
     });
+    if (volumeTopStrip) {
+      volumeTopStrip.innerHTML = `<div class="volume-chip"><div class="volume-chip-symbol">加载失败</div><div class="volume-chip-price">请检查网络</div></div>`;
+    }
     if (tradingviewPanel) {
       tradingviewPanel.innerHTML = `<div class="tv-fallback">当前未能加载 TradingView 图表</div>`;
     }
@@ -855,8 +1150,11 @@ async function loadDashboard() {
       volumeAlertList.innerHTML =
         `<div class="shock-item"><div class="shock-left"><strong>加载失败</strong><span>无法获取放量列表</span></div></div>`;
     }
+    renderHistory("shock");
+    renderHistory("volume");
     renderBottomFeeds();
     loadListingFeed();
+    setRefreshState("自动刷新：5秒 · 当前异常");
   } finally {
     state.dashboardLoading = false;
     refreshButton.disabled = false;
@@ -904,6 +1202,15 @@ document.addEventListener("click", (event) => {
       const currentSymbol = state.selectedChartSymbol || state.rows[0]?.symbol;
       updateTradingViewSelection(currentSymbol);
     }
+    return;
+  }
+
+  const clearTrigger = event.target.closest("[data-clear-history]");
+  if (clearTrigger) {
+    const type = clearTrigger.getAttribute("data-clear-history");
+    if (type === "shock" || type === "volume") {
+      clearHistory(type);
+    }
   }
 });
 
@@ -911,9 +1218,15 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     loadDashboard();
     loadListingFeed();
+    if (state.selectedChartSymbol) {
+      refreshCurrentChart();
+      startChartRealtime(state.selectedChartSymbol, state.selectedChartInterval);
+    }
   }
 });
 
 loadDashboard();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
+renderHistory("shock");
+renderHistory("volume");
