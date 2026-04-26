@@ -42,7 +42,15 @@ const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
 const state = {
   rows: [],
-  selectedChartSymbol: ""
+  selectedChartSymbol: "",
+  selectedChartInterval: "15m",
+  chart: null,
+  candleSeries: null,
+  symbolMetaMap: new Map(),
+  chartRefreshTimer: null,
+  chartRequestId: 0,
+  chartSocket: null,
+  chartSocketKey: ""
 };
 
 function setStatus(text) {
@@ -82,6 +90,29 @@ function formatPrice(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: digits
   })}`;
+}
+
+function getTickSize(symbol) {
+  return Number(state.symbolMetaMap.get(symbol)?.tickSize || 0);
+}
+
+function getPriceFormatConfig(symbol) {
+  const tickSize = getTickSize(symbol);
+  if (!Number.isFinite(tickSize) || tickSize <= 0) {
+    return {
+      precision: 4,
+      minMove: 0.0001
+    };
+  }
+
+  const normalized = tickSize.toString();
+  const decimalPart = normalized.includes(".") ? normalized.split(".")[1].replace(/0+$/, "") : "";
+  const precision = decimalPart.length;
+
+  return {
+    precision,
+    minMove: tickSize
+  };
 }
 
 function formatPercent(value, digits = 2) {
@@ -127,33 +158,8 @@ function getChainName(baseAsset) {
   return CHAIN_MAP[baseAsset] || "Unknown";
 }
 
-function getTradingViewSymbol(symbol) {
-  return `BINANCE:${symbol}.P`;
-}
-
 function getTradingViewPageUrl(symbol) {
-  const tvSymbol = getTradingViewSymbol(symbol);
-  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSymbol)}`;
-}
-
-function detectEmbeddedContext() {
-  const ua = navigator.userAgent || "";
-  const isFileProtocol = window.location.protocol === "file:";
-  const maybeIab =
-    ua.includes("WebView") ||
-    ua.includes("wv") ||
-    ua.includes("MicroMessenger") ||
-    ua.includes("Line/") ||
-    ua.includes("Instagram") ||
-    ua.includes("FBAN") ||
-    ua.includes("FBAV") ||
-    ua.includes("Electron");
-
-  return {
-    isFileProtocol,
-    maybeIab,
-    constrained: isFileProtocol || maybeIab
-  };
+  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`BINANCE:${symbol}.P`)}`;
 }
 
 function getHeatScore(row) {
@@ -195,6 +201,17 @@ async function fetchKlineSnapshot(symbol, interval) {
     latestVolume: Number(latest?.[5] || 0),
     latestChangePercent
   };
+}
+
+async function fetchChartCandles(symbol, interval, limit = 240) {
+  const klines = await fetchJson(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+  return klines.map((item) => ({
+    time: Math.floor(Number(item[0]) / 1000),
+    open: Number(item[1]),
+    high: Number(item[2]),
+    low: Number(item[3]),
+    close: Number(item[4])
+  }));
 }
 
 function rowBaseTemplate(row, extraCells) {
@@ -339,90 +356,205 @@ function renderTradingViewChart(row) {
     return;
   }
 
-  const quickSymbols = [row.symbol, "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
-  const uniqueSymbols = [...new Set(quickSymbols)];
-  const env = detectEmbeddedContext();
-  const tipHtml = env.constrained
-    ? `
-      <div class="tv-tip">
-        <strong>当前环境可能限制外链跳转。</strong>
-        你现在是 ${env.isFileProtocol ? "file:// 本地页面" : "内嵌浏览器"}，
-        上线到正式 https 站点后通常可以直接跳转；如果当前打不开，建议复制链接到系统浏览器打开。
-      </div>
-    `
-    : `
-      <div class="tv-tip">
-        <strong>当前是标准网页环境。</strong>
-        可直接打开 TradingView，支持搜索标的、切换周期和使用完整工具栏。
-      </div>
-    `;
-
   tradingviewPanel.innerHTML = `
     <div class="tv-single">
       <div class="tv-toolbar">
-        <span class="tv-title">${row.baseAsset} 永续</span>
-        <span class="tv-subtitle">${row.symbol} · 可搜索标的 / 可切周期</span>
+        <div class="tv-header-block">
+          <span class="tv-title">${row.baseAsset} 永续</span>
+          <span class="tv-subtitle">${row.symbol} · 站内K线</span>
+        </div>
+        <div class="tv-intervals">
+          ${["5m", "15m", "1h", "4h", "1d"].map((interval) => `<button class="tv-interval-btn ${state.selectedChartInterval === interval ? "active" : ""}" type="button" data-chart-interval="${interval}">${interval.toUpperCase()}</button>`).join("")}
+        </div>
       </div>
 
       <div class="tv-chart-wrap">
-        <div class="tradingview-widget-container">
-          <div class="tradingview-widget-container__widget" id="tradingviewWidget"></div>
+        <div class="chart-root">
+          <div class="chart-canvas" id="chartCanvas"></div>
         </div>
       </div>
 
-      <div class="tv-actions">
+      <div class="tv-link-row">
         <a class="tv-button" href="${getTradingViewPageUrl(row.symbol)}" target="_blank" rel="noreferrer">打开完整K线</a>
-        <a class="tv-button secondary" href="https://www.tradingview.com/chart/" target="_blank" rel="noreferrer">打开 TradingView 首页图表</a>
-        <div class="tv-chip-list">
-          ${uniqueSymbols
-            .map(
-              (symbol) => `
-                <a class="tv-chip" href="${getTradingViewPageUrl(symbol)}" target="_blank" rel="noreferrer">
-                  ${symbol.replace("USDT", "")}
-                </a>
-              `
-            )
-            .join("")}
-        </div>
+        <span class="tv-subtitle">若图表未加载，可用此按钮跳转 TradingView 兜底查看。</span>
       </div>
-
-      ${tipHtml}
     </div>
   `;
+  loadEmbeddedChart(row.symbol, state.selectedChartInterval);
+}
 
-  const widgetContainer = document.getElementById("tradingviewWidget");
-  if (!widgetContainer) {
+async function loadEmbeddedChart(symbol, interval) {
+  const container = document.getElementById("chartCanvas");
+  if (!container) {
     return;
   }
 
-  const script = document.createElement("script");
-  script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-  script.async = true;
-  script.textContent = JSON.stringify({
-    autosize: true,
-    symbol: getTradingViewSymbol(row.symbol),
-    interval: "15",
-    timezone: "Asia/Shanghai",
-    theme: "light",
-    style: "1",
-    locale: "zh_CN",
-    withdateranges: true,
-    hide_side_toolbar: false,
-    hide_top_toolbar: false,
-    allow_symbol_change: true,
-    save_image: true,
-    calendar: false,
-    studies: ["Volume@tv-basicstudies"],
-    support_host: "https://www.tradingview.com"
-  });
-  widgetContainer.innerHTML = "";
-  widgetContainer.appendChild(script);
+  if (!window.LightweightCharts) {
+    container.innerHTML = `<div class="tv-fallback">图表库未加载，请刷新页面重试</div>`;
+    return;
+  }
 
-  window.setTimeout(() => {
-    if (!widgetContainer.childElementCount) {
-      widgetContainer.innerHTML = `<div class="tv-fallback">图表未成功加载，请使用下方按钮打开完整 TradingView</div>`;
+  container.innerHTML = "";
+
+  try {
+    const requestId = ++state.chartRequestId;
+    const data = await fetchChartCandles(symbol, interval, 240);
+    if (requestId !== state.chartRequestId) {
+      return;
     }
-  }, 5000);
+
+    const { createChart, CandlestickSeries, ColorType } = window.LightweightCharts;
+    const priceFormat = getPriceFormatConfig(symbol);
+
+    if (state.chart) {
+      state.chart.remove();
+      state.chart = null;
+      state.candleSeries = null;
+    }
+
+    state.chart = createChart(container, {
+      width: container.clientWidth || 640,
+      height: 360,
+      layout: {
+        background: { type: ColorType.Solid, color: "#ffffff" },
+        textColor: "#475569"
+      },
+      grid: {
+        vertLines: { color: "#eef2f7" },
+        horzLines: { color: "#eef2f7" }
+      },
+      crosshair: {
+        mode: 0
+      },
+      rightPriceScale: {
+        borderColor: "#e7ebf3"
+      },
+      timeScale: {
+        borderColor: "#e7ebf3",
+        timeVisible: true
+      }
+    });
+
+    state.candleSeries = state.chart.addSeries(CandlestickSeries, {
+      upColor: "#22b35d",
+      downColor: "#f06565",
+      wickUpColor: "#22b35d",
+      wickDownColor: "#f06565",
+      borderVisible: false,
+      priceFormat: {
+        type: "price",
+        precision: priceFormat.precision,
+        minMove: priceFormat.minMove
+      }
+    });
+    state.candleSeries.setData(data);
+    state.chart.timeScale().fitContent();
+
+    window.requestAnimationFrame(() => {
+      state.chart.applyOptions({
+        width: container.clientWidth || 640
+      });
+    });
+
+    startChartRealtime(symbol, interval);
+  } catch (error) {
+    console.error(error);
+    container.innerHTML = `<div class="tv-fallback">站内K线加载失败，请使用下方按钮打开完整 TradingView</div>`;
+  }
+}
+
+function stopChartRealtime() {
+  if (state.chartRefreshTimer) {
+    window.clearInterval(state.chartRefreshTimer);
+    state.chartRefreshTimer = null;
+  }
+
+  if (state.chartSocket) {
+    state.chartSocket.close();
+    state.chartSocket = null;
+  }
+
+  state.chartSocketKey = "";
+}
+
+async function refreshCurrentChart() {
+  if (!state.candleSeries || !state.selectedChartSymbol) {
+    return;
+  }
+
+  try {
+    const requestId = ++state.chartRequestId;
+    const data = await fetchChartCandles(state.selectedChartSymbol, state.selectedChartInterval, 240);
+    if (requestId !== state.chartRequestId || !state.candleSeries) {
+      return;
+    }
+    state.candleSeries.setData(data);
+  } catch (error) {
+    console.error("refresh chart failed", error);
+  }
+}
+
+function startChartRealtime(symbol, interval) {
+  stopChartRealtime();
+
+  const socketKey = `${symbol}:${interval}`;
+  state.chartSocketKey = socketKey;
+
+  const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
+
+  try {
+    const socket = new WebSocket(wsUrl);
+    state.chartSocket = socket;
+
+    socket.addEventListener("message", (event) => {
+      if (state.chartSocketKey !== socketKey || !state.candleSeries) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(event.data);
+        const k = payload?.k;
+        if (!k) {
+          return;
+        }
+
+        state.candleSeries.update({
+          time: Math.floor(Number(k.t) / 1000),
+          open: Number(k.o),
+          high: Number(k.h),
+          low: Number(k.l),
+          close: Number(k.c)
+        });
+      } catch (error) {
+        console.error("chart websocket parse failed", error);
+      }
+    });
+
+    socket.addEventListener("close", () => {
+      if (state.chartSocketKey !== socketKey) {
+        return;
+      }
+
+      state.chartRefreshTimer = window.setTimeout(() => {
+        if (state.chartSocketKey === socketKey) {
+          refreshCurrentChart().then(() => startChartRealtime(symbol, interval));
+        }
+      }, 3000);
+    });
+
+    socket.addEventListener("error", () => {
+      try {
+        socket.close();
+      } catch (error) {
+        console.error("chart websocket close failed", error);
+      }
+    });
+  } catch (error) {
+    console.error("chart websocket init failed", error);
+    state.chartRefreshTimer = window.setInterval(() => {
+      refreshCurrentChart();
+    }, 5000);
+  }
 }
 
 function updateTradingViewSelection(symbol) {
@@ -609,6 +741,18 @@ async function loadDashboard() {
       (Array.isArray(fundingInfo) ? fundingInfo : []).map((item) => [item.symbol, Number(item.fundingIntervalHours)])
     );
 
+    state.symbolMetaMap = new Map(
+      symbols.map((item) => {
+        const priceFilter = (item.filters || []).find((filter) => filter.filterType === "PRICE_FILTER");
+        return [
+          item.symbol,
+          {
+            tickSize: Number(priceFilter?.tickSize || 0.0001)
+          }
+        ];
+      })
+    );
+
     const baseRows = tickers
       .filter((item) => symbolMap.has(item.symbol))
       .map((item) => {
@@ -713,12 +857,21 @@ async function loadDashboard() {
 refreshButton.addEventListener("click", loadDashboard);
 document.addEventListener("click", (event) => {
   const trigger = event.target.closest(".symbol-trigger");
-  if (!trigger) {
+  if (trigger) {
+    const symbol = trigger.getAttribute("data-chart-symbol");
+    updateTradingViewSelection(symbol);
     return;
   }
 
-  const symbol = trigger.getAttribute("data-chart-symbol");
-  updateTradingViewSelection(symbol);
+  const intervalTrigger = event.target.closest("[data-chart-interval]");
+  if (intervalTrigger) {
+    const interval = intervalTrigger.getAttribute("data-chart-interval");
+    if (interval) {
+      state.selectedChartInterval = interval;
+      const currentSymbol = state.selectedChartSymbol || state.rows[0]?.symbol;
+      updateTradingViewSelection(currentSymbol);
+    }
+  }
 });
 
 loadDashboard();
