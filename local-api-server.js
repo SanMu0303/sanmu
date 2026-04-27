@@ -2,6 +2,7 @@
 
 const http = require("http");
 const { loadListingFeedPayload } = require("./listing-feed-core");
+const { loadBweRssPayload } = require("./bwe-rss-core");
 
 const PORT = 8787;
 
@@ -30,6 +31,25 @@ const server = http.createServer(async (req, res) => {
       res.end(
         JSON.stringify({
           error: "failed to load listing feeds",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/bwe-rss-feed") {
+    try {
+      const payload = await loadBweRssPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load bwe rss feed",
           detail: error instanceof Error ? error.message : String(error)
         })
       );

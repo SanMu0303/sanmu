@@ -1,8 +1,10 @@
 const API_BASE = "https://fapi.binance.com";
-const BWE_NEWS_WS_URL = "wss://bwenews-api.bwe-ws.com/ws";
 const DASHBOARD_REFRESH_MS = 30000;
+const LISTING_REFRESH_MS = 30000;
+const HOT_FEED_REFRESH_MS = 30000;
 const REQUEST_TIMEOUT_MS = 8000;
 const KLINE_CONCURRENCY = 6;
+const MIN_24H_QUOTE_VOLUME = 10000000;
 const PERIODS = {
   p5m: "5m",
   p15m: "15m",
@@ -49,6 +51,7 @@ const shockHistoryList = document.getElementById("shockHistoryList");
 const volumeHistoryList = document.getElementById("volumeHistoryList");
 const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
+const jin10StatusBar = document.getElementById("jin10StatusBar");
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
 const THEME_STORAGE_KEY = "dashboard_theme_mode_v1";
@@ -68,13 +71,12 @@ const state = {
   chartSocket: null,
   chartSocketKey: "",
   chartLastMessageAt: 0,
-  newsSocket: null,
-  newsPingTimer: null,
-  newsReconnectTimer: null,
   newsItems: [],
   newsStatus: "idle",
   dashboardRefreshTimer: null,
   listingRefreshTimer: null,
+  hotFeedRefreshTimer: null,
+  clockTimer: null,
   dashboardLoading: false,
   activeShockSymbols: new Set(),
   activeVolumeSymbols: new Set()
@@ -153,6 +155,20 @@ function updateTime() {
   )}:${String(now.getSeconds()).padStart(2, "0")}`;
 }
 
+function startClock() {
+  updateTime();
+
+  if (state.clockTimer) {
+    window.clearInterval(state.clockTimer);
+  }
+
+  state.clockTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      updateTime();
+    }
+  }, 1000);
+}
+
 function formatTime(value) {
   const date = value instanceof Date ? value : new Date(value);
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(
@@ -165,6 +181,33 @@ function formatShortDateTime(value) {
   return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(
     date.getHours()
   ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function getUtc8DateFromSeconds(seconds) {
+  return new Date(Number(seconds) * 1000 + 8 * 60 * 60 * 1000);
+}
+
+function formatChartTimeUtc8(time) {
+  const date = getUtc8DateFromSeconds(time);
+  return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function formatChartTickUtc8(time, interval) {
+  const date = getUtc8DateFromSeconds(time);
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+
+  if (interval === "1d") {
+    return `${month}/${day}`;
+  }
+
+  if (interval === "4h" || interval === "1h") {
+    return `${month}/${day} ${hours}:00`;
+  }
+
+  return `${hours}:${minutes}`;
 }
 
 function escapeHtml(value) {
@@ -561,13 +604,15 @@ function renderTable(targetId, rows, type) {
         );
       }
 
+      const fundingTimeText = row.fundingCountdownText || formatFundingInterval(row.fundingIntervalHours || 8);
+
       return rowBaseTemplate(
         row,
         `
           <div class="cell right">${formatPrice(row.lastPrice)}</div>
           <div class="cell right">
             <div class="funding-meta">
-              <strong class="${getDeltaClass(row.fundingRate)}">${formatFunding(row.fundingRate)}/${row.fundingCountdownText}</strong>
+              <strong class="${getDeltaClass(row.fundingRate)}">${formatFunding(row.fundingRate)}/${fundingTimeText}</strong>
             </div>
           </div>
           <div class="cell right ${getDeltaClass(row.fundingRate)}">${annualizeFunding(row.fundingRate)}</div>
@@ -683,7 +728,8 @@ async function loadEmbeddedChart(symbol, interval) {
       },
       localization: {
         locale: "en-US",
-        priceFormatter: (price) => formatChartAxisPrice(symbol, price)
+        priceFormatter: (price) => formatChartAxisPrice(symbol, price),
+        timeFormatter: (time) => formatChartTimeUtc8(time)
       },
       grid: {
         vertLines: { color: getCurrentTheme() === "dark" ? "#243146" : "#eef2f7" },
@@ -697,7 +743,8 @@ async function loadEmbeddedChart(symbol, interval) {
       },
       timeScale: {
         borderColor: getCurrentTheme() === "dark" ? "#314158" : "#e7ebf3",
-        timeVisible: true
+        timeVisible: true,
+        tickMarkFormatter: (time) => formatChartTickUtc8(time, interval)
       }
     });
 
@@ -915,11 +962,6 @@ function updateTradingViewSelection(symbol) {
 
   state.selectedChartSymbol = symbol;
   renderTradingViewChart(matchedRow);
-
-  const targetPanel = document.getElementById("chainPanel");
-  if (targetPanel) {
-    targetPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
 }
 
 function ensureChartSelection(rows) {
@@ -953,7 +995,7 @@ function renderShockList(rows) {
       ${rows
         .map(
           (row) => `
-            <div class="shock-item">
+            <button class="shock-item symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
               <div class="shock-left">
                 <strong>${row.baseAsset}</strong>
                 <span>${formatPrice(row.lastPrice)}</span>
@@ -963,7 +1005,7 @@ function renderShockList(rows) {
                 <span>24H ${formatPercent(row.change24h)}</span>
                 <span>时间 ${row.shockTimeText}</span>
               </div>
-            </div>
+            </button>
           `
         )
         .join("")}
@@ -1023,14 +1065,16 @@ function renderHistory(type) {
 
   target.innerHTML = `<div class="history-list">${items
     .slice(0, 6)
-    .map(
-      (item) => `
-        <div class="history-item">
+    .map((item) => {
+      const resolvedChartSymbol =
+        item.chartSymbol || state.rows.find((row) => row.baseAsset === item.symbol)?.symbol || "";
+      return `
+        <button class="history-item symbol-trigger" type="button" data-chart-symbol="${resolvedChartSymbol}">
           <div><strong>${item.symbol}</strong> ${item.detail}</div>
           <span class="history-time">${item.timeText}</span>
-        </div>
-      `
-    )
+        </button>
+      `;
+    })
     .join("")}</div>`;
 }
 
@@ -1049,7 +1093,7 @@ function renderVolumeAlertList(rows) {
       ${rows
         .map(
           (row) => `
-            <div class="shock-item">
+            <button class="shock-item symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
               <div class="shock-left">
                 <strong>${row.baseAsset}</strong>
                 <span>${formatPrice(row.lastPrice)}</span>
@@ -1060,7 +1104,7 @@ function renderVolumeAlertList(rows) {
                 <span>15m现量 ${formatCompact(row.latest15mQuoteVolume)} USDT</span>
                 <span>前量 ${formatCompact(row.previous15mQuoteVolume)} USDT</span>
               </div>
-            </div>
+            </button>
           `
         )
         .join("")}
@@ -1070,15 +1114,6 @@ function renderVolumeAlertList(rows) {
 
 function renderBottomFeeds() {
   renderHotEventFeed();
-
-  if (listingFeed) {
-    listingFeed.innerHTML = `
-      <div class="feed-item">
-        <div class="feed-title">正在尝试读取多交易所上新公告。</div>
-        <div class="feed-meta">当前优先接入 Binance / OKX / Bybit</div>
-      </div>
-    `;
-  }
 }
 
 function renderHotEventFeed() {
@@ -1087,15 +1122,13 @@ function renderHotEventFeed() {
   }
 
   const statusClass = state.newsStatus === "live" ? "ok" : state.newsStatus === "failed" ? "failed" : "pending";
-  const statusText = state.newsStatus === "live" ? "live" : state.newsStatus === "failed" ? "failed" : "connecting";
+  const statusText = state.newsStatus === "live" ? "正常" : state.newsStatus === "failed" ? "异常" : "加载中";
   const statusBlock = `
     <div class="feed-status-block">
-      <div class="feed-status-label">BWEnews 实时状态</div>
-      <div class="feed-status-row">
-        <span class="feed-status-chip ${statusClass}">
-          <strong>BWEnews</strong>
-          <em>${statusText}</em>
-        </span>
+      <div class="feed-health-row">
+        <span class="feed-health-dot ${statusClass === "ok" ? "ok" : statusClass === "failed" ? "failed" : ""}"></span>
+        <span class="feed-health-text">${statusText}</span>
+        <span class="feed-health-time">BWE RSS</span>
       </div>
     </div>
   `;
@@ -1104,8 +1137,8 @@ function renderHotEventFeed() {
     hotEventFeed.innerHTML = `
       ${statusBlock}
       <div class="feed-item">
-        <div class="feed-title">正在等待 BWEnews 实时新闻推送。</div>
-        <div class="feed-meta">连接成功后，这里会显示最近的热点事件与关联币种</div>
+        <div class="feed-title">正在读取 BWEnews RSS。</div>
+        <div class="feed-meta">加载成功后，这里会显示最近的热点事件</div>
       </div>
     `;
     return;
@@ -1117,100 +1150,67 @@ function renderHotEventFeed() {
       .slice(0, 6)
       .map(
         (item) => `
-          <a class="feed-item" href="${escapeHtml(item.url || "#")}" target="_blank" rel="noreferrer">
-            <div class="feed-title">${escapeHtml(item.news_title || "未命名事件")}</div>
-            <div class="feed-meta">[${escapeHtml(item.source_name || "BWEnews")}] ${(item.coins_included || []).map((coin) => `$${coin}`).join(" ")} ${formatShortDateTime((item.timestamp || 0) * 1000)}</div>
+          <a class="feed-item" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noreferrer">
+            <div class="feed-title">${escapeHtml(item.primary || "未命名事件")}</div>
+            ${item.secondary ? `<div class="feed-subtitle">${escapeHtml(item.secondary)}</div>` : ""}
+            <div class="feed-summary-stack">
+              ${Array.isArray(item.metaLines)
+                ? item.metaLines
+                    .map((line) =>
+                      /^source:\s*/i.test(line)
+                        ? `<div class="feed-source-line">${escapeHtml(line)}</div>`
+                        : `<div class="feed-summary-line">${escapeHtml(line)}</div>`
+                    )
+                    .join("")
+                : ""}
+            </div>
+            <div class="feed-meta feed-meta-stack">
+              <span class="feed-source-tag">${escapeHtml(item.sourceLabel || "BWE")}</span>
+              <span>${formatShortDateTime(item.publishTime || 0)}</span>
+            </div>
           </a>
         `
       )
       .join("");
 }
 
-function stopHotEventStream() {
-  if (state.newsPingTimer) {
-    window.clearInterval(state.newsPingTimer);
-    state.newsPingTimer = null;
+async function loadHotEventFeed() {
+  if (!hotEventFeed) {
+    return;
   }
 
-  if (state.newsReconnectTimer) {
-    window.clearTimeout(state.newsReconnectTimer);
-    state.newsReconnectTimer = null;
-  }
-
-  if (state.newsSocket) {
-    try {
-      state.newsSocket.close();
-    } catch (error) {
-      console.error("close BWEnews socket failed", error);
-    }
-    state.newsSocket = null;
-  }
-}
-
-function startHotEventStream() {
-  stopHotEventStream();
   state.newsStatus = "connecting";
   renderHotEventFeed();
 
   try {
-    const socket = new WebSocket(BWE_NEWS_WS_URL);
-    state.newsSocket = socket;
+    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+    const endpoint = isLocalHost ? "http://127.0.0.1:8787/api/bwe-rss-feed" : "/api/bwe-rss-feed";
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      throw new Error(`hot feed status ${response.status}`);
+    }
 
-    socket.addEventListener("open", () => {
-      state.newsStatus = "live";
-      renderHotEventFeed();
-      state.newsPingTimer = window.setInterval(() => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send("ping");
-        }
-      }, 20000);
-    });
-
-    socket.addEventListener("message", (event) => {
-      if (typeof event.data === "string" && event.data.toLowerCase() === "pong") {
-        return;
-      }
-
-      try {
-        const payload = JSON.parse(event.data);
-        if (!payload || !payload.news_title) {
-          return;
-        }
-
-        const nextItems = [
-          payload,
-          ...state.newsItems.filter((item) => item.url !== payload.url && item.news_title !== payload.news_title)
-        ].slice(0, 20);
-
-        state.newsItems = nextItems;
-        state.newsStatus = "live";
-        renderHotEventFeed();
-      } catch (error) {
-        console.error("parse BWEnews payload failed", error);
-      }
-    });
-
-    socket.addEventListener("close", () => {
-      state.newsStatus = "failed";
-      renderHotEventFeed();
-      state.newsReconnectTimer = window.setTimeout(startHotEventStream, 5000);
-    });
-
-    socket.addEventListener("error", () => {
-      state.newsStatus = "failed";
-      renderHotEventFeed();
-      try {
-        socket.close();
-      } catch (error) {
-        console.error("BWEnews socket close failed", error);
-      }
-    });
+    const payload = await response.json();
+    state.newsItems = Array.isArray(payload.items) ? payload.items : [];
+    state.newsStatus = "live";
+    renderHotEventFeed();
   } catch (error) {
-    console.error("init BWEnews socket failed", error);
+    console.error("load BWE RSS failed", error);
     state.newsStatus = "failed";
     renderHotEventFeed();
-    state.newsReconnectTimer = window.setTimeout(startHotEventStream, 5000);
   }
+}
+
+function startHotFeedAutoRefresh() {
+  if (state.hotFeedRefreshTimer) {
+    window.clearInterval(state.hotFeedRefreshTimer);
+  }
+
+  state.hotFeedRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      loadHotEventFeed();
+    }
+  }, HOT_FEED_REFRESH_MS);
 }
 
 async function loadListingFeed() {
@@ -1219,10 +1219,19 @@ async function loadListingFeed() {
   }
 
   if (window.location.protocol === "file:") {
+    if (jin10StatusBar) {
+      jin10StatusBar.innerHTML = `
+        <span class="feed-health-inline">
+          <span class="feed-health-dot failed"></span>
+          <span class="feed-health-text">异常</span>
+          <span class="feed-health-time">file 环境</span>
+        </span>
+      `;
+    }
     listingFeed.innerHTML = `
       <div class="feed-item">
         <div class="feed-title">本地 file:// 环境无法调用 Vercel API。</div>
-        <div class="feed-meta">上线后会从 Binance / OKX / Bybit 公告自动拉取上新通知</div>
+        <div class="feed-meta">当前模式：Jin10 快讯推送</div>
       </div>
     `;
     return;
@@ -1239,53 +1248,53 @@ async function loadListingFeed() {
     const payload = await response.json();
     const items = Array.isArray(payload.items) ? payload.items : [];
     const sourceStatus = payload?.sourceStatus || {};
-    const sourceStatusHtml = `
-      <div class="feed-status-block">
-        <div class="feed-status-label">来源状态</div>
-        <div class="feed-status-row">
-        ${Object.entries(sourceStatus)
-          .map(
-            ([name, status]) => `
-              <span class="feed-status-chip ${String(status).toLowerCase()}">
-                <strong>${name}</strong>
-                <em>${status}</em>
-              </span>
-            `
-          )
-          .join("")}
-        </div>
-      </div>
-    `;
+    const jin10Status = String(sourceStatus.Jin10 || "failed").toLowerCase();
+    const updatedAt = formatTime(new Date());
+    if (jin10StatusBar) {
+      jin10StatusBar.innerHTML = `
+        <span class="feed-health-inline">
+          <span class="feed-health-dot ${jin10Status === "ok" ? "ok" : "failed"}"></span>
+          <span class="feed-health-text">${jin10Status === "ok" ? "正常" : "异常"}</span>
+          <span class="feed-health-time">${updatedAt} 更新</span>
+        </span>
+      `;
+    }
 
     if (!items.length) {
       listingFeed.innerHTML = `
-        ${sourceStatusHtml}
         <div class="feed-item">
-          <div class="feed-title">暂未获取到上新公告。</div>
-          <div class="feed-meta">当前聚合源：Binance / Telegram / OKX / Bybit</div>
+          <div class="feed-title">暂未获取到推送内容。</div>
+          <div class="feed-meta">当前来源：Jin10 快讯</div>
         </div>
       `;
       return;
     }
 
-    listingFeed.innerHTML =
-      sourceStatusHtml +
-      items
-        .slice(0, 6)
-        .map(
-          (item) => `
-            <a class="feed-item" href="${item.link}" target="_blank" rel="noreferrer">
-              <div class="feed-title">${item.title}</div>
-              <div class="feed-meta">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
-            </a>
-          `
-        )
-        .join("");
+    listingFeed.innerHTML = items
+      .slice(0, 6)
+      .map(
+        (item) => `
+          <a class="feed-item" href="${item.link}" target="_blank" rel="noreferrer">
+            <div class="feed-title">${item.title}</div>
+            <div class="feed-meta">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
+          </a>
+        `
+      )
+      .join("");
   } catch (error) {
+    if (jin10StatusBar) {
+      jin10StatusBar.innerHTML = `
+        <span class="feed-health-inline">
+          <span class="feed-health-dot failed"></span>
+          <span class="feed-health-text">异常</span>
+          <span class="feed-health-time">更新失败</span>
+        </span>
+      `;
+    }
     listingFeed.innerHTML = `
       <div class="feed-item">
-        <div class="feed-title">暂时无法读取上新公告。</div>
-        <div class="feed-meta">请确认本地 8787 接口或线上 API 是否已启动</div>
+        <div class="feed-title">暂时无法读取推送内容。</div>
+        <div class="feed-meta">请确认本地 8787 接口、Jin10 配置或线上 API 是否已启动</div>
       </div>
     `;
   }
@@ -1332,7 +1341,7 @@ async function loadDashboard() {
       })
     );
 
-    const baseRows = tickers
+    const allBaseRows = tickers
       .filter((item) => symbolMap.has(item.symbol))
       .map((item) => {
         const info = symbolMap.get(item.symbol);
@@ -1345,13 +1354,16 @@ async function loadDashboard() {
           change24h: Number(item.priceChangePercent),
           fundingRate: Number(funding.lastFundingRate || 0),
           nextFundingTime: Number(funding.nextFundingTime || 0),
-          fundingIntervalHours: fundingInfoMap.get(item.symbol) || 8
+          fundingIntervalHours: fundingInfoMap.get(item.symbol) || 8,
+          fundingCountdownText: formatFundingInterval(fundingInfoMap.get(item.symbol) || 8)
         };
-      })
-      .sort((a, b) => b.quoteVolume - a.quoteVolume)
-      .slice(0, 24);
+      });
 
-    const detailedRows = await mapWithConcurrency(baseRows, KLINE_CONCURRENCY, async (row) => {
+    const eligibleBaseRows = allBaseRows
+      .filter((row) => row.quoteVolume >= MIN_24H_QUOTE_VOLUME)
+      .sort((a, b) => b.quoteVolume - a.quoteVolume);
+
+    const detailedRows = await mapWithConcurrency(eligibleBaseRows, KLINE_CONCURRENCY, async (row) => {
       try {
         const metrics = await fetchIntervalMetrics(row.symbol);
 
@@ -1398,8 +1410,20 @@ async function loadDashboard() {
     const volumeTop = [...detailedRows].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 10);
     const gainers = [...detailedRows].sort((a, b) => b.change24h - a.change24h).slice(0, 5);
     const losers = [...detailedRows].sort((a, b) => a.change24h - b.change24h).slice(0, 5);
-    const positiveFunding = [...detailedRows].sort((a, b) => b.fundingRate - a.fundingRate).slice(0, 5);
-    const negativeFunding = [...detailedRows].sort((a, b) => a.fundingRate - b.fundingRate).slice(0, 5);
+    const positiveFunding = [...eligibleBaseRows]
+      .sort((a, b) => b.fundingRate - a.fundingRate)
+      .slice(0, 5)
+      .map((row) => ({
+        ...row,
+        fundingCountdownText: row.fundingCountdownText || formatFundingInterval(row.fundingIntervalHours || 8)
+      }));
+    const negativeFunding = [...eligibleBaseRows]
+      .sort((a, b) => a.fundingRate - b.fundingRate)
+      .slice(0, 5)
+      .map((row) => ({
+        ...row,
+        fundingCountdownText: row.fundingCountdownText || formatFundingInterval(row.fundingIntervalHours || 8)
+      }));
     const shocks = [...detailedRows]
       .filter((row) => Math.abs(row.change5m) >= 5)
       .sort((a, b) => Math.abs(b.change5m) - Math.abs(a.change5m))
@@ -1413,6 +1437,7 @@ async function loadDashboard() {
       .filter((row) => !state.activeShockSymbols.has(row.symbol))
       .map((row) => ({
         symbol: row.baseAsset,
+        chartSymbol: row.symbol,
         detail: `${formatPercent(row.change5m)} / 24H ${formatPercent(row.change24h)}`,
         timeText: formatShortDateTime(new Date())
       }));
@@ -1420,6 +1445,7 @@ async function loadDashboard() {
       .filter((row) => !state.activeVolumeSymbols.has(row.symbol))
       .map((row) => ({
         symbol: row.baseAsset,
+        chartSymbol: row.symbol,
         detail: `${row.volumeMultiple.toFixed(2)}x / ${formatPercent(row.volumeKlineChange)}`,
         timeText: formatShortDateTime(new Date())
       }));
@@ -1448,7 +1474,6 @@ async function loadDashboard() {
       renderHistory("volume");
     }
     renderBottomFeeds();
-    loadListingFeed();
 
     updateTime();
     setStatus(`已更新 ${detailedRows.length} 个合约`);
@@ -1477,7 +1502,6 @@ async function loadDashboard() {
     renderHistory("shock");
     renderHistory("volume");
     renderBottomFeeds();
-    loadListingFeed();
     setRefreshState(`自动刷新：${Math.round(DASHBOARD_REFRESH_MS / 1000)}秒 · 当前异常`);
   } finally {
     state.dashboardLoading = false;
@@ -1506,7 +1530,7 @@ function startListingAutoRefresh() {
     if (!document.hidden) {
       loadListingFeed();
     }
-  }, 5 * 60 * 1000);
+  }, LISTING_REFRESH_MS);
 }
 
 refreshButton.addEventListener("click", loadDashboard);
@@ -1542,13 +1566,11 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     loadDashboard();
     loadListingFeed();
+    loadHotEventFeed();
     if (state.selectedChartSymbol) {
       refreshCurrentChart();
       startChartRealtime(state.selectedChartSymbol, state.selectedChartInterval);
     }
-    startHotEventStream();
-  } else {
-    stopHotEventStream();
   }
 });
 
@@ -1565,9 +1587,12 @@ if (themeToggleButton) {
 }
 
 initializeTheme();
+startClock();
 loadDashboard();
+loadListingFeed();
+loadHotEventFeed();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
-startHotEventStream();
+startHotFeedAutoRefresh();
 renderHistory("shock");
 renderHistory("volume");

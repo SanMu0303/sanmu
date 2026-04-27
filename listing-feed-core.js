@@ -1,12 +1,11 @@
 "use strict";
 
+const JIN10_MCP_URL = "https://mcp.jin10.com/mcp";
+const JIN10_TOKEN =
+  process.env.JIN10_MCP_TOKEN || "sk-Y3HrI9owWY_xsm0ocIEne51UsapxdSlEuRiTCE3PoJ0";
+
 async function loadListingFeedPayload() {
-  const results = await Promise.allSettled([
-    fetchBinanceListingAnnouncements(),
-    fetchTelegramListingFeed(),
-    fetchOkxListingAnnouncements(),
-    fetchBybitListingAnnouncements()
-  ]);
+  const results = await Promise.allSettled([fetchJin10FlashFeed()]);
 
   const items = results
     .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
@@ -14,19 +13,147 @@ async function loadListingFeedPayload() {
     .slice(0, 20);
 
   return {
-    source: "multi-exchange",
+    source: "jin10",
     sourceStatus: {
-      Binance: results[0].status === "fulfilled" ? "ok" : "failed",
-      Telegram: results[1].status === "fulfilled" ? "ok" : "failed",
-      OKX: results[2].status === "fulfilled" ? "ok" : "failed",
-      Bybit: results[3].status === "fulfilled" ? "ok" : "failed",
-      Coinbase: "pending",
-      Upbit: "pending",
-      Robinhood: "pending",
-      Bithumb: "pending"
+      Jin10: results[0].status === "fulfilled" ? "ok" : "failed",
+      Binance: "paused",
+      Telegram: "paused",
+      OKX: "paused",
+      Bybit: "paused",
+      Coinbase: "paused",
+      Upbit: "paused",
+      Robinhood: "paused",
+      Bithumb: "paused"
     },
     items
   };
+}
+
+async function fetchJin10FlashFeed() {
+  const response = await callJin10Mcp("list_flash", {});
+  const items = response?.data?.items || [];
+  const normalizedItems = items.map((item) => {
+    const title = normalizeTitle(item.title || item.content || "金十快讯");
+    const content = normalizeTitle(item.content || "");
+
+    return {
+      exchange: "Jin10",
+      title: title.length > 64 ? `${title.slice(0, 64)}...` : title,
+      summary: content && content !== title ? content.slice(0, 96) : formatJin10Time(item.time),
+      link: item.url || "https://flash.jin10.com/",
+      symbols: extractSymbols(content || title),
+      publishTime: item.time ? Date.parse(item.time) : Date.now(),
+      importanceScore: getJin10ImportanceScore(title, content)
+    };
+  });
+
+  const importantItems = normalizedItems
+    .filter((item) => item.importanceScore >= 2)
+    .sort((a, b) => Number(b.importanceScore) - Number(a.importanceScore) || Number(b.publishTime) - Number(a.publishTime))
+    .slice(0, 8);
+
+  return (importantItems.length ? importantItems : normalizedItems.slice(0, 6)).map((item) => ({
+    exchange: item.exchange,
+    title: item.title,
+    summary: item.summary,
+    link: item.link,
+    symbols: item.symbols,
+    publishTime: item.publishTime
+  }));
+}
+
+async function callJin10Mcp(toolName, args) {
+  if (!JIN10_TOKEN) {
+    throw new Error("jin10 token missing");
+  }
+
+  const sessionId = await initJin10Session();
+  const payload = await fetchMcpJson(sessionId, {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: toolName,
+      arguments: args || {}
+    }
+  });
+
+  const structured = payload?.result?.structuredContent;
+  if (structured && typeof structured === "object") {
+    return structured;
+  }
+
+  const textContent = payload?.result?.content?.find((item) => item.type === "text")?.text || "";
+  return textContent ? JSON.parse(textContent) : {};
+}
+
+async function initJin10Session() {
+  const payload = await fetchMcpResponse(
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: {
+          name: "sanmu-dashboard",
+          version: "1.0.0"
+        }
+      }
+    },
+    {}
+  );
+
+  const sessionId = payload.sessionId;
+  if (!sessionId) {
+    throw new Error("jin10 mcp session missing");
+  }
+
+  return sessionId;
+}
+
+async function fetchMcpJson(sessionId, body) {
+  const payload = await fetchMcpResponse(body, { "Mcp-Session-Id": sessionId });
+  return payload.json;
+}
+
+async function fetchMcpResponse(body, extraHeaders) {
+  const response = await fetch(JIN10_MCP_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${JIN10_TOKEN}`,
+      "Content-Type": "application/json",
+      ...extraHeaders
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw new Error(`jin10 mcp request failed: ${response.status}`);
+  }
+
+  const sessionId = response.headers.get("mcp-session-id") || "";
+  const text = await response.text();
+  const json = parseMcpSsePayload(text);
+
+  if (!json) {
+    throw new Error("jin10 mcp response parse failed");
+  }
+
+  return {
+    sessionId,
+    json
+  };
+}
+
+function parseMcpSsePayload(text) {
+  const match = String(text || "").match(/data:\s*(\{[\s\S]*\})/);
+  if (!match) {
+    return null;
+  }
+
+  return JSON.parse(match[1]);
 }
 
 async function fetchBinanceListingAnnouncements() {
@@ -222,6 +349,45 @@ function buildSummary(timeValue, code) {
   const dateText = timeValue ? new Date(Number(timeValue)).toISOString().slice(0, 16).replace("T", " ") : "";
   const codeText = code ? `公告ID ${code}` : "";
   return [dateText, codeText].filter(Boolean).join(" · ");
+}
+
+function formatJin10Time(value) {
+  if (!value) {
+    return "";
+  }
+
+  return String(value).replace("T", " ").replace("+08:00", "");
+}
+
+function getJin10ImportanceScore(title, content) {
+  const text = `${normalizeTitle(title)} ${normalizeTitle(content)}`;
+  const lower = text.toLowerCase();
+  let score = 0;
+
+  const keywordGroups = [
+    { score: 3, words: ["美联储", "fed", "鲍威尔", "fomc", "欧洲央行", "ecb", "日本央行", "英国央行", "中国人民银行", "央行"] },
+    { score: 3, words: ["特朗普", "白宫", "国务院", "财政部", "sec", "证监会", "关税", "制裁", "停火", "战争", "袭击", "导弹", "伊朗", "俄罗斯", "乌克兰"] },
+    { score: 2, words: ["openai", "微软", "英伟达", "苹果", "特斯拉", "谷歌", "亚马逊", "meta", "高盛", "摩根士丹利"] },
+    { score: 2, words: ["财报", "净利润", "营收", "同比增长", "同比下降", "立案", "收购", "并购", "破产", "发行", "裁员"] },
+    { score: 2, words: ["比特币", "btc", "以太坊", "eth", "sol", "xrp", "加密", "crypto", "稳定币", "etf"] },
+    { score: 1, words: ["涨幅", "跌幅", "暴跌", "大涨", "新高", "新低", "盘前", "开盘", "收盘"] }
+  ];
+
+  keywordGroups.forEach((group) => {
+    if (group.words.some((word) => lower.includes(String(word).toLowerCase()))) {
+      score += group.score;
+    }
+  });
+
+  if (/[涨跌](幅)?[超逾]\d+/.test(text) || /暴跌\d+/.test(text) || /大涨\d+/.test(text)) {
+    score += 2;
+  }
+
+  if (/金十数据.*讯/.test(text) || /【.+】/.test(text)) {
+    score += 1;
+  }
+
+  return score;
 }
 
 module.exports = {
