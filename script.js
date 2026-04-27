@@ -1,4 +1,7 @@
 const API_BASE = "https://fapi.binance.com";
+const DASHBOARD_REFRESH_MS = 30000;
+const REQUEST_TIMEOUT_MS = 8000;
+const KLINE_CONCURRENCY = 6;
 const PERIODS = {
   p5m: "5m",
   p15m: "15m",
@@ -241,16 +244,45 @@ function getHeatScore(row) {
   return Math.round(volumeScore * 0.4 + momentumScore * 0.35 + shortTermScore * 0.25);
 }
 
-async function fetchJson(path) {
-  const response = await fetch(`${API_BASE}${path}`);
-  if (!response.ok) {
-    throw new Error(`请求失败: ${response.status}`);
+async function fetchJson(path, options = {}) {
+  const { retries = 1, timeoutMs = REQUEST_TIMEOUT_MS } = options;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+      window.clearTimeout(timer);
+
+      if (!response.ok) {
+        throw new Error(`请求失败: ${response.status}`);
+      }
+      return response.json();
+    } catch (error) {
+      window.clearTimeout(timer);
+      lastError = error;
+      if (attempt < retries) {
+        await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
+      }
+    }
   }
-  return response.json();
+
+  throw lastError || new Error("请求失败");
+}
+
+async function fetchJsonOrDefault(path, fallbackValue, options = {}) {
+  try {
+    return await fetchJson(path, options);
+  } catch (error) {
+    console.error(`optional request failed: ${path}`, error);
+    return fallbackValue;
+  }
 }
 
 async function fetchKlineChange(symbol, interval) {
-  const klines = await fetchJson(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=2`);
+  const klines = await fetchJson(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=2`, { retries: 1 });
   const previousOpen = Number(klines[0]?.[1]);
   const latestClose = Number(klines[1]?.[4] ?? klines[0]?.[4]);
   if (!Number.isFinite(previousOpen) || !Number.isFinite(latestClose) || previousOpen === 0) {
@@ -260,7 +292,7 @@ async function fetchKlineChange(symbol, interval) {
 }
 
 async function fetchKlineSnapshot(symbol, interval) {
-  const klines = await fetchJson(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=2`);
+  const klines = await fetchJson(`/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=2`, { retries: 1 });
   const previous = klines[0];
   const latest = klines[1] ?? klines[0];
   const latestOpen = Number(latest?.[1] || 0);
@@ -269,12 +301,49 @@ async function fetchKlineSnapshot(symbol, interval) {
     latestOpen > 0 && Number.isFinite(latestClose) ? ((latestClose - latestOpen) / latestOpen) * 100 : 0;
 
   return {
+    previousOpen: Number(previous?.[1] || 0),
+    latestClose: Number(latest?.[4] || 0),
     previousVolume: Number(previous?.[5] || 0),
     latestVolume: Number(latest?.[5] || 0),
     previousQuoteVolume: Number(previous?.[7] || 0),
     latestQuoteVolume: Number(latest?.[7] || 0),
     latestChangePercent
   };
+}
+
+async function fetchIntervalMetrics(symbol) {
+  const [change5m, kline15m] = await Promise.all([
+    fetchKlineChange(symbol, PERIODS.p5m),
+    fetchKlineSnapshot(symbol, PERIODS.p15m)
+  ]);
+
+  const previousOpen15m = Number(kline15m.previousOpen || 0);
+  const latestClose15m = Number(kline15m.latestClose || 0);
+  const change15m =
+    previousOpen15m > 0 && Number.isFinite(latestClose15m) ? ((latestClose15m - previousOpen15m) / previousOpen15m) * 100 : 0;
+
+  return {
+    change5m,
+    change15m,
+    ...kline15m
+  };
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
 }
 
 async function fetchChartCandles(symbol, interval, limit = 240) {
@@ -994,10 +1063,10 @@ async function loadDashboard() {
 
   try {
     const [exchangeInfo, tickers, premiumIndex, fundingInfo] = await Promise.all([
-      fetchJson("/fapi/v1/exchangeInfo"),
-      fetchJson("/fapi/v1/ticker/24hr"),
-      fetchJson("/fapi/v1/premiumIndex"),
-      fetchJson("/fapi/v1/fundingInfo")
+      fetchJson("/fapi/v1/exchangeInfo", { retries: 2 }),
+      fetchJson("/fapi/v1/ticker/24hr", { retries: 2 }),
+      fetchJsonOrDefault("/fapi/v1/premiumIndex", [], { retries: 1 }),
+      fetchJsonOrDefault("/fapi/v1/fundingInfo", [], { retries: 1 })
     ]);
 
     const symbols = exchangeInfo.symbols.filter(
@@ -1043,34 +1112,48 @@ async function loadDashboard() {
       .sort((a, b) => b.quoteVolume - a.quoteVolume)
       .slice(0, 24);
 
-    const detailedRows = await Promise.all(
-      baseRows.map(async (row) => {
-        const [change5m, change15m, kline15m] = await Promise.all([
-          fetchKlineChange(row.symbol, PERIODS.p5m),
-          fetchKlineChange(row.symbol, PERIODS.p15m),
-          fetchKlineSnapshot(row.symbol, PERIODS.p15m)
-        ]);
+    const detailedRows = await mapWithConcurrency(baseRows, KLINE_CONCURRENCY, async (row) => {
+      try {
+        const metrics = await fetchIntervalMetrics(row.symbol);
 
         const fullRow = {
           ...row,
-          change5m,
-          change15m,
+          change5m: metrics.change5m,
+          change15m: metrics.change15m,
           heatScore: 0,
           shockTimeText: formatTime(new Date()),
           fundingCountdownText: formatFundingInterval(row.fundingIntervalHours),
-          previous15mVolume: kline15m.previousVolume,
-          latest15mVolume: kline15m.latestVolume,
-          previous15mQuoteVolume: kline15m.previousQuoteVolume,
-          latest15mQuoteVolume: kline15m.latestQuoteVolume,
-          volumeKlineChange: kline15m.latestChangePercent
+          previous15mVolume: metrics.previousVolume,
+          latest15mVolume: metrics.latestVolume,
+          previous15mQuoteVolume: metrics.previousQuoteVolume,
+          latest15mQuoteVolume: metrics.latestQuoteVolume,
+          volumeKlineChange: metrics.latestChangePercent
         };
 
         fullRow.volumeMultiple =
           fullRow.previous15mVolume > 0 ? fullRow.latest15mVolume / fullRow.previous15mVolume : 0;
         fullRow.heatScore = getHeatScore(fullRow);
         return fullRow;
-      })
-    );
+      } catch (error) {
+        console.error(`metrics failed for ${row.symbol}`, error);
+        const fallbackRow = {
+          ...row,
+          change5m: 0,
+          change15m: 0,
+          heatScore: 0,
+          shockTimeText: formatTime(new Date()),
+          fundingCountdownText: formatFundingInterval(row.fundingIntervalHours),
+          previous15mVolume: 0,
+          latest15mVolume: 0,
+          previous15mQuoteVolume: 0,
+          latest15mQuoteVolume: 0,
+          volumeKlineChange: 0,
+          volumeMultiple: 0
+        };
+        fallbackRow.heatScore = getHeatScore(fallbackRow);
+        return fallbackRow;
+      }
+    });
 
     const heatTop = [...detailedRows].sort((a, b) => b.heatScore - a.heatScore).slice(0, 10);
     const volumeTop = [...detailedRows].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 10);
@@ -1130,19 +1213,21 @@ async function loadDashboard() {
 
     updateTime();
     setStatus(`已更新 ${detailedRows.length} 个合约`);
-    setRefreshState(`自动刷新：5秒 · 上次 ${formatTime(new Date())}`);
+    setRefreshState(`自动刷新：${Math.round(DASHBOARD_REFRESH_MS / 1000)}秒 · 上次 ${formatTime(new Date())}`);
   } catch (error) {
     console.error(error);
+    const isLocalFile = window.location.protocol === "file:";
+    const errorHint = isLocalFile ? "本地 file:// 环境下，浏览器可能拦截或限制币安接口请求" : "请检查网络或币安接口可访问性";
     setStatus("加载失败");
     const failHtml = `<div class="table-row"><div class="cell">当前未能拉取币安数据，请检查网络或接口可访问性。</div></div>`;
     ["heatTable", "gainersTable", "losersTable", "positiveFundingTable", "negativeFundingTable"].forEach((id) => {
       document.getElementById(id).innerHTML = failHtml;
     });
     if (volumeTopStrip) {
-      volumeTopStrip.innerHTML = `<div class="volume-chip"><div class="volume-chip-symbol">加载失败</div><div class="volume-chip-price">请检查网络</div></div>`;
+      volumeTopStrip.innerHTML = `<div class="volume-chip"><div class="volume-chip-symbol">加载失败</div><div class="volume-chip-price">${isLocalFile ? "file环境受限" : "请检查网络"}</div></div>`;
     }
     if (tradingviewPanel) {
-      tradingviewPanel.innerHTML = `<div class="tv-fallback">当前未能加载 TradingView 图表</div>`;
+      tradingviewPanel.innerHTML = `<div class="tv-fallback">${errorHint}</div>`;
     }
     document.getElementById("shockList").innerHTML =
       `<div class="shock-item"><div class="shock-left"><strong>加载失败</strong><span>无法获取异动列表</span></div></div>`;
@@ -1154,7 +1239,7 @@ async function loadDashboard() {
     renderHistory("volume");
     renderBottomFeeds();
     loadListingFeed();
-    setRefreshState("自动刷新：5秒 · 当前异常");
+    setRefreshState(`自动刷新：${Math.round(DASHBOARD_REFRESH_MS / 1000)}秒 · 当前异常`);
   } finally {
     state.dashboardLoading = false;
     refreshButton.disabled = false;
@@ -1170,7 +1255,7 @@ function startDashboardAutoRefresh() {
     if (!document.hidden) {
       loadDashboard();
     }
-  }, 5000);
+  }, DASHBOARD_REFRESH_MS);
 }
 
 function startListingAutoRefresh() {
