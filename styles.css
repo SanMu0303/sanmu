@@ -201,6 +201,75 @@ button {
   gap: 6px;
 }
 
+.feed-status-block {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.feed-status-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.feed-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.feed-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.feed-status-chip strong,
+.feed-status-chip em {
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.feed-status-chip strong {
+  font-weight: 700;
+}
+
+.feed-status-chip em {
+  opacity: 0.92;
+}
+
+.feed-status-chip.ok {
+  border-color: rgba(34, 179, 93, 0.24);
+  background: rgba(34, 179, 93, 0.1);
+  color: var(--green);
+}
+
+.feed-status-chip.failed {
+  border-color: rgba(240, 101, 101, 0.24);
+  background: rgba(240, 101, 101, 0.1);
+  color: var(--red);
+}
+
+.feed-status-chip.pending {
+  border-color: rgba(245, 158, 11, 0.24);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--amber);
+}
+
 .feed-item {
   display: grid;
   gap: 3px;

@@ -1,4 +1,5 @@
 const API_BASE = "https://fapi.binance.com";
+const BWE_NEWS_WS_URL = "wss://bwenews-api.bwe-ws.com/ws";
 const DASHBOARD_REFRESH_MS = 30000;
 const REQUEST_TIMEOUT_MS = 8000;
 const KLINE_CONCURRENCY = 6;
@@ -65,6 +66,11 @@ const state = {
   chartSocket: null,
   chartSocketKey: "",
   chartLastMessageAt: 0,
+  newsSocket: null,
+  newsPingTimer: null,
+  newsReconnectTimer: null,
+  newsItems: [],
+  newsStatus: "idle",
   dashboardRefreshTimer: null,
   listingRefreshTimer: null,
   dashboardLoading: false,
@@ -104,6 +110,15 @@ function formatShortDateTime(value) {
   return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(
     date.getHours()
   ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function formatFundingInterval(hours) {
@@ -178,6 +193,27 @@ function formatCompact(value, digits = 2) {
     notation: "compact",
     maximumFractionDigits: digits
   }).format(value);
+}
+
+function formatCompactKMB(value, digits = 2) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+
+  const absValue = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+
+  if (absValue >= 1e9) {
+    return `${sign}${(absValue / 1e9).toFixed(digits).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")}B`;
+  }
+  if (absValue >= 1e6) {
+    return `${sign}${(absValue / 1e6).toFixed(digits).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")}M`;
+  }
+  if (absValue >= 1e3) {
+    return `${sign}${(absValue / 1e3).toFixed(digits).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")}K`;
+  }
+
+  return `${sign}${absValue.toFixed(digits).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")}`;
 }
 
 function formatFunding(value) {
@@ -625,10 +661,14 @@ async function loadEmbeddedChart(symbol, interval) {
     state.candleSeries.setData(data);
     state.volumeSeries = state.chart.addSeries(HistogramSeries, {
       priceFormat: {
-        type: "volume"
+        type: "custom",
+        formatter: (value) => formatCompactKMB(value, 2)
       },
       priceScaleId: "",
       color: "#cbd5e1"
+      ,
+      lastValueVisible: false,
+      priceLineVisible: false
     });
     state.volumeSeries.priceScale().applyOptions({
       scaleMargins: {
@@ -974,18 +1014,7 @@ function renderVolumeAlertList(rows) {
 }
 
 function renderBottomFeeds() {
-  if (hotEventFeed) {
-    hotEventFeed.innerHTML = `
-      <div class="feed-item">
-        <div class="feed-title">预留热点事件位：后续可接推特热点、项目公告、宏观快讯。</div>
-        <div class="feed-meta">占位内容 · 待接接口</div>
-      </div>
-      <div class="feed-item">
-        <div class="feed-title">预留事件提醒位：适合显示突发新闻、合作动态、链上异动摘要。</div>
-        <div class="feed-meta">占位内容 · 待接接口</div>
-      </div>
-    `;
-  }
+  renderHotEventFeed();
 
   if (listingFeed) {
     listingFeed.innerHTML = `
@@ -994,6 +1023,138 @@ function renderBottomFeeds() {
         <div class="feed-meta">当前优先接入 Binance / OKX / Bybit</div>
       </div>
     `;
+  }
+}
+
+function renderHotEventFeed() {
+  if (!hotEventFeed) {
+    return;
+  }
+
+  const statusClass = state.newsStatus === "live" ? "ok" : state.newsStatus === "failed" ? "failed" : "pending";
+  const statusText = state.newsStatus === "live" ? "live" : state.newsStatus === "failed" ? "failed" : "connecting";
+  const statusBlock = `
+    <div class="feed-status-block">
+      <div class="feed-status-label">BWEnews 实时状态</div>
+      <div class="feed-status-row">
+        <span class="feed-status-chip ${statusClass}">
+          <strong>BWEnews</strong>
+          <em>${statusText}</em>
+        </span>
+      </div>
+    </div>
+  `;
+
+  if (!state.newsItems.length) {
+    hotEventFeed.innerHTML = `
+      ${statusBlock}
+      <div class="feed-item">
+        <div class="feed-title">正在等待 BWEnews 实时新闻推送。</div>
+        <div class="feed-meta">连接成功后，这里会显示最近的热点事件与关联币种</div>
+      </div>
+    `;
+    return;
+  }
+
+  hotEventFeed.innerHTML =
+    statusBlock +
+    state.newsItems
+      .slice(0, 6)
+      .map(
+        (item) => `
+          <a class="feed-item" href="${escapeHtml(item.url || "#")}" target="_blank" rel="noreferrer">
+            <div class="feed-title">${escapeHtml(item.news_title || "未命名事件")}</div>
+            <div class="feed-meta">[${escapeHtml(item.source_name || "BWEnews")}] ${(item.coins_included || []).map((coin) => `$${coin}`).join(" ")} ${formatShortDateTime((item.timestamp || 0) * 1000)}</div>
+          </a>
+        `
+      )
+      .join("");
+}
+
+function stopHotEventStream() {
+  if (state.newsPingTimer) {
+    window.clearInterval(state.newsPingTimer);
+    state.newsPingTimer = null;
+  }
+
+  if (state.newsReconnectTimer) {
+    window.clearTimeout(state.newsReconnectTimer);
+    state.newsReconnectTimer = null;
+  }
+
+  if (state.newsSocket) {
+    try {
+      state.newsSocket.close();
+    } catch (error) {
+      console.error("close BWEnews socket failed", error);
+    }
+    state.newsSocket = null;
+  }
+}
+
+function startHotEventStream() {
+  stopHotEventStream();
+  state.newsStatus = "connecting";
+  renderHotEventFeed();
+
+  try {
+    const socket = new WebSocket(BWE_NEWS_WS_URL);
+    state.newsSocket = socket;
+
+    socket.addEventListener("open", () => {
+      state.newsStatus = "live";
+      renderHotEventFeed();
+      state.newsPingTimer = window.setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send("ping");
+        }
+      }, 20000);
+    });
+
+    socket.addEventListener("message", (event) => {
+      if (typeof event.data === "string" && event.data.toLowerCase() === "pong") {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(event.data);
+        if (!payload || !payload.news_title) {
+          return;
+        }
+
+        const nextItems = [
+          payload,
+          ...state.newsItems.filter((item) => item.url !== payload.url && item.news_title !== payload.news_title)
+        ].slice(0, 20);
+
+        state.newsItems = nextItems;
+        state.newsStatus = "live";
+        renderHotEventFeed();
+      } catch (error) {
+        console.error("parse BWEnews payload failed", error);
+      }
+    });
+
+    socket.addEventListener("close", () => {
+      state.newsStatus = "failed";
+      renderHotEventFeed();
+      state.newsReconnectTimer = window.setTimeout(startHotEventStream, 5000);
+    });
+
+    socket.addEventListener("error", () => {
+      state.newsStatus = "failed";
+      renderHotEventFeed();
+      try {
+        socket.close();
+      } catch (error) {
+        console.error("BWEnews socket close failed", error);
+      }
+    });
+  } catch (error) {
+    console.error("init BWEnews socket failed", error);
+    state.newsStatus = "failed";
+    renderHotEventFeed();
+    state.newsReconnectTimer = window.setTimeout(startHotEventStream, 5000);
   }
 }
 
@@ -1013,40 +1174,63 @@ async function loadListingFeed() {
   }
 
   try {
-    const response = await fetch("/api/new-listings-feed");
+    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+    const endpoint = isLocalHost ? "http://127.0.0.1:8787/api/new-listings-feed" : "/api/new-listings-feed";
+    const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error(`feed status ${response.status}`);
     }
 
     const payload = await response.json();
     const items = Array.isArray(payload.items) ? payload.items : [];
+    const sourceStatus = payload?.sourceStatus || {};
+    const sourceStatusHtml = `
+      <div class="feed-status-block">
+        <div class="feed-status-label">来源状态</div>
+        <div class="feed-status-row">
+        ${Object.entries(sourceStatus)
+          .map(
+            ([name, status]) => `
+              <span class="feed-status-chip ${String(status).toLowerCase()}">
+                <strong>${name}</strong>
+                <em>${status}</em>
+              </span>
+            `
+          )
+          .join("")}
+        </div>
+      </div>
+    `;
 
     if (!items.length) {
       listingFeed.innerHTML = `
+        ${sourceStatusHtml}
         <div class="feed-item">
-          <div class="feed-title">暂未获取到多交易所上新公告。</div>
-          <div class="feed-meta">当前公告页可能暂无匹配的新上币/新合约内容</div>
+          <div class="feed-title">暂未获取到上新公告。</div>
+          <div class="feed-meta">当前聚合源：Binance / Telegram / OKX / Bybit</div>
         </div>
       `;
       return;
     }
 
-    listingFeed.innerHTML = items
-      .slice(0, 6)
-      .map(
-        (item) => `
-          <a class="feed-item" href="${item.link}" target="_blank" rel="noreferrer">
-            <div class="feed-title">${item.title}</div>
-            <div class="feed-meta">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
-          </a>
-        `
-      )
-      .join("");
+    listingFeed.innerHTML =
+      sourceStatusHtml +
+      items
+        .slice(0, 6)
+        .map(
+          (item) => `
+            <a class="feed-item" href="${item.link}" target="_blank" rel="noreferrer">
+              <div class="feed-title">${item.title}</div>
+              <div class="feed-meta">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
+            </a>
+          `
+        )
+        .join("");
   } catch (error) {
     listingFeed.innerHTML = `
       <div class="feed-item">
-        <div class="feed-title">暂时无法读取多交易所上新公告。</div>
-        <div class="feed-meta">接口失败后会保留这个占位提示</div>
+        <div class="feed-title">暂时无法读取上新公告。</div>
+        <div class="feed-meta">请确认本地 8787 接口或线上 API 是否已启动</div>
       </div>
     `;
   }
@@ -1307,11 +1491,15 @@ document.addEventListener("visibilitychange", () => {
       refreshCurrentChart();
       startChartRealtime(state.selectedChartSymbol, state.selectedChartInterval);
     }
+    startHotEventStream();
+  } else {
+    stopHotEventStream();
   }
 });
 
 loadDashboard();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
+startHotEventStream();
 renderHistory("shock");
 renderHistory("volume");
