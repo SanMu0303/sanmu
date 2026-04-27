@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260427-darkfix-2" />
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
   <body>
@@ -19,11 +19,12 @@
         <div class="brand">
           <div class="brand-mark">A</div>
           <div>
-            <p class="eyebrow">Alpha Monitor</p>
-            <h1>币安合约观察台</h1>
+            <p class="eyebrow">SANMU TRADING</p>
+            <h1>三木交易面板</h1>
           </div>
         </div>
         <div class="toolbar-meta">
+          <button class="theme-toggle-button" id="themeToggleButton" type="button" aria-label="切换主题" title="切换主题">☾</button>
           <button class="ghost-button" id="refreshButton">刷新数据</button>
           <span id="refreshState">自动刷新：5秒</span>
           <span id="fetchStatus">等待加载</span>
@@ -84,10 +85,10 @@
           </div>
         </aside>
 
-        <section class="stack-panel">
+        <section class="stack-panel compact-stack-panel">
           <div class="sub-panel">
             <div class="panel-header">
-              <h2>币安涨幅榜 top5</h2>
+              <h2>币安合约涨幅榜 top5</h2>
             </div>
             <div class="panel-body" id="gainersTable"></div>
           </div>
@@ -100,7 +101,7 @@
           </div>
         </section>
 
-        <section class="stack-panel">
+        <section class="stack-panel compact-stack-panel">
           <div class="sub-panel">
             <div class="panel-header">
               <h2>币安合约正资金费率 top5</h2>
@@ -134,7 +135,7 @@
       </section>
     </div>
 
-    <script src="./config.js"></script>
-    <script src="./script.js"></script>
+    <script src="./config.js?v=20260427-darkfix-2"></script>
+    <script src="./script.js?v=20260427-darkfix-2"></script>
   </body>
 </html>

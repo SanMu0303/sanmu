@@ -38,6 +38,7 @@ const CHAIN_MAP = {
 };
 
 const refreshButton = document.getElementById("refreshButton");
+const themeToggleButton = document.getElementById("themeToggleButton");
 const refreshStateNode = document.getElementById("refreshState");
 const updateTimeNode = document.getElementById("updateTime");
 const fetchStatusNode = document.getElementById("fetchStatus");
@@ -50,6 +51,7 @@ const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
+const THEME_STORAGE_KEY = "dashboard_theme_mode_v1";
 const state = {
   rows: [],
   selectedChartSymbol: "",
@@ -86,6 +88,59 @@ function setRefreshState(text) {
   if (refreshStateNode) {
     refreshStateNode.textContent = text;
   }
+}
+
+function getCurrentTheme() {
+  return document.documentElement.classList.contains("theme-dark") || document.body.classList.contains("theme-dark")
+    ? "dark"
+    : "light";
+}
+
+function updateThemeToggleLabel() {
+  if (!themeToggleButton) {
+    return;
+  }
+  const isDark = getCurrentTheme() === "dark";
+  themeToggleButton.textContent = isDark ? "☀" : "☾";
+  themeToggleButton.setAttribute("aria-label", isDark ? "切换到亮色模式" : "切换到暗色模式");
+  themeToggleButton.setAttribute("title", isDark ? "切换到亮色模式" : "切换到暗色模式");
+}
+
+function applyTheme(theme) {
+  document.documentElement.classList.toggle("theme-dark", theme === "dark");
+  document.body.classList.toggle("theme-dark", theme === "dark");
+  updateThemeToggleLabel();
+
+  if (state.chart) {
+    const isDark = theme === "dark";
+    state.chart.applyOptions({
+      layout: {
+        background: { type: window.LightweightCharts.ColorType.Solid, color: isDark ? "#172133" : "#ffffff" },
+        textColor: isDark ? "#c7d2e5" : "#475569"
+      },
+      grid: {
+        vertLines: { color: isDark ? "#243146" : "#eef2f7" },
+        horzLines: { color: isDark ? "#243146" : "#eef2f7" }
+      },
+      rightPriceScale: {
+        borderColor: isDark ? "#314158" : "#e7ebf3"
+      },
+      timeScale: {
+        borderColor: isDark ? "#314158" : "#e7ebf3",
+        timeVisible: true
+      }
+    });
+  }
+}
+
+function initializeTheme() {
+  let savedTheme = "light";
+  try {
+    savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || "light";
+  } catch (error) {
+    savedTheme = "light";
+  }
+  applyTheme(savedTheme === "dark" ? "dark" : "light");
 }
 
 function updateTime() {
@@ -623,25 +678,25 @@ async function loadEmbeddedChart(symbol, interval) {
       width: container.clientWidth || 640,
       height: 360,
       layout: {
-        background: { type: ColorType.Solid, color: "#ffffff" },
-        textColor: "#475569"
+        background: { type: ColorType.Solid, color: getCurrentTheme() === "dark" ? "#172133" : "#ffffff" },
+        textColor: getCurrentTheme() === "dark" ? "#c7d2e5" : "#475569"
       },
       localization: {
         locale: "en-US",
         priceFormatter: (price) => formatChartAxisPrice(symbol, price)
       },
       grid: {
-        vertLines: { color: "#eef2f7" },
-        horzLines: { color: "#eef2f7" }
+        vertLines: { color: getCurrentTheme() === "dark" ? "#243146" : "#eef2f7" },
+        horzLines: { color: getCurrentTheme() === "dark" ? "#243146" : "#eef2f7" }
       },
       crosshair: {
         mode: 0
       },
       rightPriceScale: {
-        borderColor: "#e7ebf3"
+        borderColor: getCurrentTheme() === "dark" ? "#314158" : "#e7ebf3"
       },
       timeScale: {
-        borderColor: "#e7ebf3",
+        borderColor: getCurrentTheme() === "dark" ? "#314158" : "#e7ebf3",
         timeVisible: true
       }
     });
@@ -1497,6 +1552,19 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+if (themeToggleButton) {
+  themeToggleButton.addEventListener("click", () => {
+    const nextTheme = getCurrentTheme() === "dark" ? "light" : "dark";
+    applyTheme(nextTheme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch (error) {
+      console.error("save theme failed", error);
+    }
+  });
+}
+
+initializeTheme();
 loadDashboard();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
