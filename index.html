@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260427-fundingfix-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260428-blockbeats-dedupe-1" />
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
   <body>
@@ -121,7 +121,8 @@
       <section class="bottom-strip">
         <section class="bottom-panel">
           <div class="panel-header">
-            <h2>热点事件</h2>
+            <h2>方程式新闻</h2>
+            <div class="panel-header-status" id="bweStatusBar"></div>
           </div>
           <div class="panel-body compact-feed" id="hotEventFeed"></div>
         </section>
@@ -133,10 +134,18 @@
           </div>
           <div class="panel-body compact-feed" id="listingFeed"></div>
         </section>
+
+        <section class="bottom-panel">
+          <div class="panel-header">
+            <h2>律动快讯</h2>
+            <div class="panel-header-status" id="binanceNewsStatusBar"></div>
+          </div>
+          <div class="panel-body compact-feed" id="reserveFeed"></div>
+        </section>
       </section>
     </div>
 
-    <script src="./config.js?v=20260427-fundingfix-1"></script>
-    <script src="./script.js?v=20260427-fundingfix-1"></script>
+    <script src="./config.js?v=20260428-blockbeats-dedupe-1"></script>
+    <script src="./script.js?v=20260428-blockbeats-dedupe-1"></script>
   </body>
 </html>

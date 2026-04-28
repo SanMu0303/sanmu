@@ -51,7 +51,10 @@ const shockHistoryList = document.getElementById("shockHistoryList");
 const volumeHistoryList = document.getElementById("volumeHistoryList");
 const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
+const reserveFeed = document.getElementById("reserveFeed");
+const bweStatusBar = document.getElementById("bweStatusBar");
 const jin10StatusBar = document.getElementById("jin10StatusBar");
+const binanceNewsStatusBar = document.getElementById("binanceNewsStatusBar");
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
 const THEME_STORAGE_KEY = "dashboard_theme_mode_v1";
@@ -73,9 +76,13 @@ const state = {
   chartLastMessageAt: 0,
   newsItems: [],
   newsStatus: "idle",
+  reserveItems: [],
+  reserveStatus: "idle",
+  reserveUpdatedAt: "",
   dashboardRefreshTimer: null,
   listingRefreshTimer: null,
   hotFeedRefreshTimer: null,
+  reserveFeedRefreshTimer: null,
   clockTimer: null,
   dashboardLoading: false,
   activeShockSymbols: new Set(),
@@ -1116,6 +1123,54 @@ function renderBottomFeeds() {
   renderHotEventFeed();
 }
 
+function renderReserveFeedLoading() {
+  if (!reserveFeed) {
+    return;
+  }
+
+  if (state.reserveItems.length) {
+    return;
+  }
+
+  reserveFeed.innerHTML = `
+    <div class="feed-item feed-item--compact">
+      <div class="feed-title">正在读取律动快讯。</div>
+      <div class="feed-meta">来自 BlockBeats 官方 RSS-v2 快讯源。</div>
+    </div>
+  `;
+}
+
+function renderReserveFeed() {
+  if (!reserveFeed) {
+    return;
+  }
+
+  if (!state.reserveItems.length) {
+    reserveFeed.innerHTML = `
+      <div class="feed-item feed-item--compact">
+        <div class="feed-title">暂未获取到律动快讯。</div>
+        <div class="feed-meta">当前接口暂无可展示内容。</div>
+      </div>
+    `;
+    return;
+  }
+
+  reserveFeed.innerHTML = state.reserveItems
+    .map(
+      (item) => `
+        <a class="feed-item feed-item--compact" href="${item.link}" target="_blank" rel="noreferrer">
+          <div class="feed-title feed-line-clamp-2">${escapeHtml(item.title || "未命名公告")}</div>
+          <div class="feed-meta">
+            <span class="feed-source-tag">${escapeHtml(item.sourceTag || "BN")}</span>
+            <span class="feed-line-clamp-1">${escapeHtml(item.summary || "")}</span>
+            <span>${formatShortDateTime(item.publishTime || 0)}</span>
+          </div>
+        </a>
+      `
+    )
+    .join("");
+}
+
 function renderHotEventFeed() {
   if (!hotEventFeed) {
     return;
@@ -1123,19 +1178,18 @@ function renderHotEventFeed() {
 
   const statusClass = state.newsStatus === "live" ? "ok" : state.newsStatus === "failed" ? "failed" : "pending";
   const statusText = state.newsStatus === "live" ? "正常" : state.newsStatus === "failed" ? "异常" : "加载中";
-  const statusBlock = `
-    <div class="feed-status-block">
-      <div class="feed-health-row">
+  if (bweStatusBar) {
+    bweStatusBar.innerHTML = `
+      <span class="feed-health-inline">
         <span class="feed-health-dot ${statusClass === "ok" ? "ok" : statusClass === "failed" ? "failed" : ""}"></span>
         <span class="feed-health-text">${statusText}</span>
         <span class="feed-health-time">BWE RSS</span>
-      </div>
-    </div>
-  `;
+      </span>
+    `;
+  }
 
   if (!state.newsItems.length) {
     hotEventFeed.innerHTML = `
-      ${statusBlock}
       <div class="feed-item">
         <div class="feed-title">正在读取 BWEnews RSS。</div>
         <div class="feed-meta">加载成功后，这里会显示最近的热点事件</div>
@@ -1145,9 +1199,8 @@ function renderHotEventFeed() {
   }
 
   hotEventFeed.innerHTML =
-    statusBlock +
     state.newsItems
-      .slice(0, 6)
+      .slice(0, 8)
       .map(
         (item) => `
           <a class="feed-item" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noreferrer">
@@ -1213,6 +1266,78 @@ function startHotFeedAutoRefresh() {
   }, HOT_FEED_REFRESH_MS);
 }
 
+async function loadReserveFeed() {
+  if (!reserveFeed) {
+    return;
+  }
+
+  if (!state.reserveItems.length) {
+    state.reserveStatus = "connecting";
+  }
+  renderReserveFeedLoading();
+  updateReserveStatusBar();
+
+  try {
+    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+    const endpoint = isLocalHost ? "http://127.0.0.1:8787/api/blockbeats-feed" : "/api/blockbeats-feed";
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      throw new Error(`reserve feed status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const sourceStatus = String(payload?.sourceStatus?.BlockBeats || "live").toLowerCase();
+    state.reserveStatus = sourceStatus === "failed" ? "failed" : "live";
+    state.reserveUpdatedAt = formatTime(new Date());
+    if (items.length) {
+      state.reserveItems = items;
+    }
+    updateReserveStatusBar();
+    renderReserveFeed();
+  } catch (error) {
+    console.error("load binance news failed", error);
+    state.reserveStatus = "failed";
+    updateReserveStatusBar();
+    if (!state.reserveItems.length) {
+      reserveFeed.innerHTML = `
+        <div class="feed-item feed-item--compact">
+        <div class="feed-title">暂时无法读取律动快讯。</div>
+          <div class="feed-meta">请检查本地 8787 接口或线上 /api/blockbeats-feed 是否可访问。</div>
+        </div>
+      `;
+    }
+  }
+}
+
+function updateReserveStatusBar() {
+  if (!binanceNewsStatusBar) {
+    return;
+  }
+
+  const statusClass = state.reserveStatus === "live" ? "ok" : state.reserveStatus === "failed" ? "failed" : "";
+  const statusText = state.reserveStatus === "live" ? "正常" : state.reserveStatus === "failed" ? "异常" : "加载中";
+  binanceNewsStatusBar.innerHTML = `
+    <span class="feed-health-inline">
+      <span class="feed-health-dot ${statusClass}"></span>
+      <span class="feed-health-text">${statusText}</span>
+      <span class="feed-health-time">${state.reserveUpdatedAt ? `${state.reserveUpdatedAt} 更新` : "BlockBeats"}</span>
+    </span>
+  `;
+}
+
+function startReserveFeedAutoRefresh() {
+  if (state.reserveFeedRefreshTimer) {
+    window.clearInterval(state.reserveFeedRefreshTimer);
+  }
+
+  state.reserveFeedRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      loadReserveFeed();
+    }
+  }, LISTING_REFRESH_MS);
+}
+
 async function loadListingFeed() {
   if (!listingFeed) {
     return;
@@ -1229,7 +1354,7 @@ async function loadListingFeed() {
       `;
     }
     listingFeed.innerHTML = `
-      <div class="feed-item">
+      <div class="feed-item feed-item--compact">
         <div class="feed-title">本地 file:// 环境无法调用 Vercel API。</div>
         <div class="feed-meta">当前模式：Jin10 快讯推送</div>
       </div>
@@ -1262,7 +1387,7 @@ async function loadListingFeed() {
 
     if (!items.length) {
       listingFeed.innerHTML = `
-        <div class="feed-item">
+        <div class="feed-item feed-item--compact">
           <div class="feed-title">暂未获取到推送内容。</div>
           <div class="feed-meta">当前来源：Jin10 快讯</div>
         </div>
@@ -1271,12 +1396,11 @@ async function loadListingFeed() {
     }
 
     listingFeed.innerHTML = items
-      .slice(0, 6)
       .map(
         (item) => `
-          <a class="feed-item" href="${item.link}" target="_blank" rel="noreferrer">
-            <div class="feed-title">${item.title}</div>
-            <div class="feed-meta">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
+          <a class="feed-item feed-item--compact" href="${item.link}" target="_blank" rel="noreferrer">
+            <div class="feed-title feed-line-clamp-2">${item.title}</div>
+            <div class="feed-meta feed-line-clamp-1">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
           </a>
         `
       )
@@ -1292,7 +1416,7 @@ async function loadListingFeed() {
       `;
     }
     listingFeed.innerHTML = `
-      <div class="feed-item">
+      <div class="feed-item feed-item--compact">
         <div class="feed-title">暂时无法读取推送内容。</div>
         <div class="feed-meta">请确认本地 8787 接口、Jin10 配置或线上 API 是否已启动</div>
       </div>
@@ -1567,6 +1691,7 @@ document.addEventListener("visibilitychange", () => {
     loadDashboard();
     loadListingFeed();
     loadHotEventFeed();
+    loadReserveFeed();
     if (state.selectedChartSymbol) {
       refreshCurrentChart();
       startChartRealtime(state.selectedChartSymbol, state.selectedChartInterval);
@@ -1591,8 +1716,10 @@ startClock();
 loadDashboard();
 loadListingFeed();
 loadHotEventFeed();
+loadReserveFeed();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
 startHotFeedAutoRefresh();
+startReserveFeedAutoRefresh();
 renderHistory("shock");
 renderHistory("volume");

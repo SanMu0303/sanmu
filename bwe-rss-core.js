@@ -16,7 +16,7 @@ async function loadBweRssPayload() {
 
   const xml = await response.text();
   const items = parseRssItems(xml)
-    .slice(0, 12)
+    .slice(0, 240)
     .map((item) => {
       const layered = buildLayeredFeedContent(item.title || "", item.description || "", item.link || "#");
       return {

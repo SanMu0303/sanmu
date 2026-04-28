@@ -50,9 +50,20 @@ async function fetchJin10FlashFeed() {
   const importantItems = normalizedItems
     .filter((item) => item.importanceScore >= 2)
     .sort((a, b) => Number(b.importanceScore) - Number(a.importanceScore) || Number(b.publishTime) - Number(a.publishTime))
-    .slice(0, 8);
+    .slice(0, 10);
+  const seen = new Set();
+  const filledItems = [...importantItems, ...normalizedItems.sort((a, b) => Number(b.publishTime) - Number(a.publishTime))]
+    .filter((item) => {
+      const key = `${item.title}-${item.publishTime}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 24);
 
-  return (importantItems.length ? importantItems : normalizedItems.slice(0, 6)).map((item) => ({
+  return filledItems.map((item) => ({
     exchange: item.exchange,
     title: item.title,
     summary: item.summary,
