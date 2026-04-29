@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260428-blockbeats-dedupe-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260429-alert-main-column-1" />
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
   <body>
@@ -51,69 +51,73 @@
           <div class="panel-body tradingview-panel" id="tradingviewPanel"></div>
         </section>
 
-        <aside class="side-panel">
-          <div class="sub-panel">
-            <div class="panel-header">
-              <h2>价格异动</h2>
-            </div>
-            <div class="panel-body">
-              <div id="shockList"></div>
-              <div class="history-block">
-                <div class="history-header">
-                  <div class="history-title">历史留存</div>
-                  <button class="history-clear-btn" type="button" data-clear-history="shock">清空</button>
+        <section class="right-rail">
+          <aside class="side-panel">
+            <div class="sub-panel">
+              <div class="panel-header">
+                <h2>价格异动</h2>
+              </div>
+              <div class="panel-body">
+                <div id="shockList"></div>
+                <div class="history-block">
+                  <div class="history-header">
+                    <div class="history-title">历史留存</div>
+                    <button class="history-clear-btn" type="button" data-clear-history="shock">清空</button>
+                  </div>
+                  <div id="shockHistoryList"></div>
                 </div>
-                <div id="shockHistoryList"></div>
               </div>
             </div>
-          </div>
-          <div class="divider"></div>
-          <div class="sub-panel">
-            <div class="panel-header">
-              <h2>异常放量</h2>
-            </div>
-            <div class="panel-body">
-              <div id="volumeAlertList"></div>
-              <div class="history-block">
-                <div class="history-header">
-                  <div class="history-title">历史留存</div>
-                  <button class="history-clear-btn" type="button" data-clear-history="volume">清空</button>
+            <div class="divider"></div>
+            <div class="sub-panel">
+              <div class="panel-header">
+                <h2>异常放量</h2>
+              </div>
+              <div class="panel-body">
+                <div id="volumeAlertList"></div>
+                <div class="history-block">
+                  <div class="history-header">
+                    <div class="history-title">历史留存</div>
+                    <button class="history-clear-btn" type="button" data-clear-history="volume">清空</button>
+                  </div>
+                  <div id="volumeHistoryList"></div>
                 </div>
-                <div id="volumeHistoryList"></div>
               </div>
             </div>
-          </div>
-        </aside>
+          </aside>
 
-        <section class="stack-panel compact-stack-panel">
+          <section class="board-panel macro-calendar-panel" id="macroCalendarPanel">
+            <div class="panel-header">
+              <h2>宏观日历</h2>
+              <div class="panel-header-status" id="macroCalendarStatusBar"></div>
+            </div>
+            <div class="panel-body macro-calendar-feed" id="macroCalendarFeed"></div>
+          </section>
+        </section>
+
+        <section class="stack-panel compact-stack-panel movers-panel movers-toggle-panel">
           <div class="sub-panel">
             <div class="panel-header">
-              <h2>币安合约涨幅榜 top5</h2>
+              <h2 id="moversTitle">币安合约涨幅榜 top10</h2>
+              <div class="movers-toggle" aria-label="切换涨跌幅榜">
+                <button class="movers-toggle-button active" type="button" data-movers-mode="gainers">涨幅榜</button>
+                <button class="movers-toggle-button" type="button" data-movers-mode="losers">跌幅榜</button>
+              </div>
             </div>
-            <div class="panel-body" id="gainersTable"></div>
-          </div>
-          <div class="divider"></div>
-          <div class="sub-panel">
-            <div class="panel-header">
-              <h2>币安合约跌幅榜 top5</h2>
-            </div>
-            <div class="panel-body" id="losersTable"></div>
+            <div class="panel-body" id="moversTable"></div>
           </div>
         </section>
 
-        <section class="stack-panel compact-stack-panel">
+        <section class="stack-panel compact-stack-panel funding-panel funding-toggle-panel">
           <div class="sub-panel">
             <div class="panel-header">
-              <h2>币安合约正资金费率 top5</h2>
+              <h2 id="fundingTitle">币安合约负资金费率 top10</h2>
+              <div class="movers-toggle" aria-label="切换资金费率榜">
+                <button class="movers-toggle-button active" type="button" data-funding-mode="negative">负费率</button>
+                <button class="movers-toggle-button" type="button" data-funding-mode="positive">正费率</button>
+              </div>
             </div>
-            <div class="panel-body" id="positiveFundingTable"></div>
-          </div>
-          <div class="divider"></div>
-          <div class="sub-panel">
-            <div class="panel-header">
-              <h2>币安合约负资金费率 top5</h2>
-            </div>
-            <div class="panel-body" id="negativeFundingTable"></div>
+            <div class="panel-body" id="fundingTable"></div>
           </div>
         </section>
       </main>
@@ -145,7 +149,7 @@
       </section>
     </div>
 
-    <script src="./config.js?v=20260428-blockbeats-dedupe-1"></script>
-    <script src="./script.js?v=20260428-blockbeats-dedupe-1"></script>
+    <script src="./config.js?v=20260429-alert-main-column-1"></script>
+    <script src="./script.js?v=20260429-alert-main-column-1"></script>
   </body>
 </html>
