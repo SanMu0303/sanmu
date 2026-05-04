@@ -1,8 +1,13 @@
 "use strict";
 
 const { loadListingFeedPayload } = require("../listing-feed-core");
+const { applyCors } = require("./cors");
 
 module.exports = async function handler(req, res) {
+  if (applyCors(req, res)) {
+    return;
+  }
+
   try {
     const payload = await loadListingFeedPayload();
     res.statusCode = 200;

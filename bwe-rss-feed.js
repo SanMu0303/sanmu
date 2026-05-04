@@ -1,8 +1,13 @@
 "use strict";
 
 const { loadBweRssPayload } = require("../bwe-rss-core");
+const { applyCors } = require("./cors");
 
 module.exports = async function handler(req, res) {
+  if (applyCors(req, res)) {
+    return;
+  }
+
   try {
     const payload = await loadBweRssPayload();
     res.statusCode = 200;

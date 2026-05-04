@@ -1,8 +1,13 @@
 "use strict";
 
 const { loadBinanceNewsPayload } = require("../binance-news-core");
+const { applyCors } = require("./cors");
 
 module.exports = async function handler(req, res) {
+  if (applyCors(req, res)) {
+    return;
+  }
+
   try {
     const payload = await loadBinanceNewsPayload();
     res.statusCode = 200;

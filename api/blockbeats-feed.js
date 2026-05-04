@@ -1,8 +1,13 @@
 "use strict";
 
 const { loadBlockBeatsPayload } = require("../blockbeats-core");
+const { applyCors } = require("./cors");
 
 module.exports = async function handler(req, res) {
+  if (applyCors(req, res)) {
+    return;
+  }
+
   try {
     const payload = await loadBlockBeatsPayload();
     res.statusCode = 200;
