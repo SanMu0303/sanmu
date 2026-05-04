@@ -13,7 +13,8 @@ const ALLOWED_BINANCE_PATHS = new Set([
   "/fapi/v1/ticker/24hr",
   "/fapi/v1/premiumIndex",
   "/fapi/v1/fundingInfo",
-  "/fapi/v1/klines"
+  "/fapi/v1/klines",
+  "/fapi/v1/time"
 ]);
 
 function normalizeBinancePath(rawPath) {

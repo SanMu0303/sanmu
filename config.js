@@ -1,5 +1,7 @@
 window.DASHBOARD_CONFIG = {
-  apiOrigin: "",
+  // 如果网页部署在 GitHub Pages，必须填写 Vercel/Netlify 等可运行 /api 的后端域名。
+  // 如果网页直接部署并访问 Vercel 域名，可以保持为空，默认使用同域 /api。
+  apiOrigin: "https://sanmu-o962.vercel.app",
   socialHeat: {
     enabled: false,
     endpoint: "",

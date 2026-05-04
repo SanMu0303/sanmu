@@ -467,6 +467,22 @@ function getConfiguredApiOrigin() {
   return origin.trim().replace(/\/+$/, "");
 }
 
+function getBinanceFailureHint() {
+  const isLocalFile = window.location.protocol === "file:";
+  const isGithubPages = window.location.hostname.endsWith(".github.io");
+  const apiOrigin = getConfiguredApiOrigin();
+
+  if (isLocalFile) {
+    return "本地 file:// 页面需要保持 127.0.0.1:8787 本地 API 服务运行。";
+  }
+
+  if (isGithubPages && !apiOrigin) {
+    return "GitHub Pages 不能运行 /api 后端，请在 config.js 填写 Vercel API 域名，或直接访问 Vercel 部署地址。";
+  }
+
+  return "请检查 Vercel /api/binance-proxy 是否部署成功，或币安上游接口是否可访问。";
+}
+
 async function fetchJsonOrDefault(path, fallbackValue, options = {}) {
   try {
     return await fetchJson(path, options);
@@ -1801,7 +1817,7 @@ async function loadDashboard() {
   } catch (error) {
     console.error(error);
     const isLocalFile = window.location.protocol === "file:";
-    const errorHint = isLocalFile ? "本地 file:// 环境下，浏览器可能拦截或限制币安接口请求" : "请检查网络或币安接口可访问性";
+    const errorHint = getBinanceFailureHint();
     setStatus("加载失败");
     const failHtml = `<div class="table-row"><div class="cell">当前未能拉取币安数据，请检查网络或接口可访问性。</div></div>`;
     ["heatTable", "moversTable", "fundingTable"].forEach((id) => {
