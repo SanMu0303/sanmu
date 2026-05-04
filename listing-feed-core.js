@@ -29,6 +29,18 @@ async function loadListingFeedPayload() {
   };
 }
 
+async function loadMacroCalendarPayload() {
+  const items = await fetchJin10CalendarFeed();
+
+  return {
+    source: "jin10-calendar",
+    sourceStatus: {
+      Jin10Calendar: items.length ? "ok" : "failed"
+    },
+    items
+  };
+}
+
 async function fetchJin10FlashFeed() {
   const response = await callJin10Mcp("list_flash", {});
   const items = response?.data?.items || [];
@@ -71,6 +83,43 @@ async function fetchJin10FlashFeed() {
     symbols: item.symbols,
     publishTime: item.publishTime
   }));
+}
+
+async function fetchJin10CalendarFeed() {
+  const response = await callJin10Mcp("list_calendar", {});
+  const rawItems = Array.isArray(response?.data) ? response.data : [];
+  const now = Date.now();
+
+  return rawItems
+    .map((item) => {
+      const eventTime = parseJin10CalendarTime(item.pub_time);
+      const details = [
+        item.actual !== null && item.actual !== undefined ? `公布 ${item.actual}` : "",
+        item.consensus !== null && item.consensus !== undefined ? `预期 ${item.consensus}` : "",
+        item.previous !== null && item.previous !== undefined ? `前值 ${item.previous}` : "",
+        item.affect_txt ? item.affect_txt : ""
+      ].filter(Boolean);
+
+      return {
+        title: normalizeTitle(item.title || "财经日历"),
+        summary: details.join(" / "),
+        eventTime,
+        timeText: formatJin10CalendarTime(eventTime),
+        dateText: formatJin10CalendarDate(eventTime),
+        importance: Number(item.star || 0),
+        isFuture: eventTime >= now,
+        sourceTag: "J10",
+        link: "https://rili.jin10.com/"
+      };
+    })
+    .filter((item) => item.title && item.eventTime && item.importance >= 3)
+    .sort((a, b) => {
+      if (a.isFuture !== b.isFuture) {
+        return a.isFuture ? -1 : 1;
+      }
+      return a.isFuture ? a.eventTime - b.eventTime : b.eventTime - a.eventTime;
+    })
+    .slice(0, 18);
 }
 
 async function callJin10Mcp(toolName, args) {
@@ -370,6 +419,26 @@ function formatJin10Time(value) {
   return String(value).replace("T", " ").replace("+08:00", "");
 }
 
+function parseJin10CalendarTime(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return 0;
+  }
+
+  const parsed = Date.parse(text.replace(/-/g, "/"));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatJin10CalendarDate(timestamp) {
+  const date = new Date(timestamp);
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatJin10CalendarTime(timestamp) {
+  const date = new Date(timestamp);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function getJin10ImportanceScore(title, content) {
   const text = `${normalizeTitle(title)} ${normalizeTitle(content)}`;
   const lower = text.toLowerCase();
@@ -402,5 +471,6 @@ function getJin10ImportanceScore(title, content) {
 }
 
 module.exports = {
-  loadListingFeedPayload
+  loadListingFeedPayload,
+  loadMacroCalendarPayload
 };

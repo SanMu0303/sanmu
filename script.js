@@ -1,7 +1,7 @@
-const API_BASE = "https://fapi.binance.com";
 const DASHBOARD_REFRESH_MS = 30000;
 const LISTING_REFRESH_MS = 30000;
 const HOT_FEED_REFRESH_MS = 30000;
+const MACRO_CALENDAR_REFRESH_MS = 300000;
 const REQUEST_TIMEOUT_MS = 8000;
 const KLINE_CONCURRENCY = 6;
 const MIN_24H_QUOTE_VOLUME = 10000000;
@@ -46,15 +46,21 @@ const updateTimeNode = document.getElementById("updateTime");
 const fetchStatusNode = document.getElementById("fetchStatus");
 const tradingviewPanel = document.getElementById("tradingviewPanel");
 const volumeTopStrip = document.getElementById("volumeTopStrip");
+const moversTitle = document.getElementById("moversTitle");
+const moversTable = document.getElementById("moversTable");
+const fundingTitle = document.getElementById("fundingTitle");
+const fundingTable = document.getElementById("fundingTable");
 const volumeAlertList = document.getElementById("volumeAlertList");
 const shockHistoryList = document.getElementById("shockHistoryList");
 const volumeHistoryList = document.getElementById("volumeHistoryList");
 const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
 const reserveFeed = document.getElementById("reserveFeed");
+const macroCalendarFeed = document.getElementById("macroCalendarFeed");
 const bweStatusBar = document.getElementById("bweStatusBar");
 const jin10StatusBar = document.getElementById("jin10StatusBar");
 const binanceNewsStatusBar = document.getElementById("binanceNewsStatusBar");
+const macroCalendarStatusBar = document.getElementById("macroCalendarStatusBar");
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
 const THEME_STORAGE_KEY = "dashboard_theme_mode_v1";
@@ -79,12 +85,22 @@ const state = {
   reserveItems: [],
   reserveStatus: "idle",
   reserveUpdatedAt: "",
+  macroCalendarItems: [],
+  macroCalendarStatus: "idle",
+  macroCalendarUpdatedAt: "",
   dashboardRefreshTimer: null,
   listingRefreshTimer: null,
   hotFeedRefreshTimer: null,
   reserveFeedRefreshTimer: null,
+  macroCalendarRefreshTimer: null,
   clockTimer: null,
   dashboardLoading: false,
+  moversMode: "gainers",
+  moversGainers: [],
+  moversLosers: [],
+  fundingMode: "negative",
+  positiveFunding: [],
+  negativeFunding: [],
   activeShockSymbols: new Set(),
   activeVolumeSymbols: new Set()
 };
@@ -342,6 +358,22 @@ function getDeltaClass(value) {
   return value >= 0 ? "up" : "down";
 }
 
+function getVolumeMultipleClass(value) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  if (value >= 10) {
+    return "alert-red";
+  }
+  if (value >= 5) {
+    return "alert-amber";
+  }
+  if (value >= 3) {
+    return "up";
+  }
+  return "";
+}
+
 function getChainName(baseAsset) {
   return CHAIN_MAP[baseAsset] || "Unknown";
 }
@@ -394,7 +426,8 @@ async function fetchJson(path, options = {}) {
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+      const endpoint = getBinanceApiEndpoint(path);
+      const response = await fetch(endpoint, { signal: controller.signal });
       window.clearTimeout(timer);
 
       if (!response.ok) {
@@ -411,6 +444,27 @@ async function fetchJson(path, options = {}) {
   }
 
   throw lastError || new Error("请求失败");
+}
+
+function getBinanceApiEndpoint(path) {
+  const isLocalPage =
+    window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  const proxyPath = `/api/binance-proxy?path=${encodeURIComponent(path)}`;
+
+  if (isLocalPage) {
+    return `http://127.0.0.1:8787${proxyPath}`;
+  }
+
+  const apiOrigin = getConfiguredApiOrigin();
+  return apiOrigin ? `${apiOrigin}${proxyPath}` : proxyPath;
+}
+
+function getConfiguredApiOrigin() {
+  const origin = window.DASHBOARD_CONFIG?.apiOrigin;
+  if (typeof origin !== "string" || !origin.trim()) {
+    return "";
+  }
+  return origin.trim().replace(/\/+$/, "");
 }
 
 async function fetchJsonOrDefault(path, fallbackValue, options = {}) {
@@ -633,6 +687,44 @@ function renderTable(targetId, rows, type) {
   target.innerHTML = `<div class="table table-${type}">${getHeaderTemplate(type)}${content}</div>`;
 }
 
+function renderMoversRanking() {
+  if (!moversTable) {
+    return;
+  }
+
+  const isLosers = state.moversMode === "losers";
+  const rows = isLosers ? state.moversLosers : state.moversGainers;
+
+  if (moversTitle) {
+    moversTitle.textContent = isLosers ? "币安合约跌幅榜 top10" : "币安合约涨幅榜 top10";
+  }
+
+  document.querySelectorAll("[data-movers-mode]").forEach((button) => {
+    button.classList.toggle("active", button.getAttribute("data-movers-mode") === state.moversMode);
+  });
+
+  renderTable("moversTable", rows, "movers");
+}
+
+function renderFundingRanking() {
+  if (!fundingTable) {
+    return;
+  }
+
+  const isPositive = state.fundingMode === "positive";
+  const rows = isPositive ? state.positiveFunding : state.negativeFunding;
+
+  if (fundingTitle) {
+    fundingTitle.textContent = isPositive ? "币安合约正资金费率 top10" : "币安合约负资金费率 top10";
+  }
+
+  document.querySelectorAll("[data-funding-mode]").forEach((button) => {
+    button.classList.toggle("active", button.getAttribute("data-funding-mode") === state.fundingMode);
+  });
+
+  renderTable("fundingTable", rows, "funding");
+}
+
 function renderVolumeTopStrip(rows) {
   if (!volumeTopStrip) {
     return;
@@ -728,7 +820,7 @@ async function loadEmbeddedChart(symbol, interval) {
 
     state.chart = createChart(container, {
       width: container.clientWidth || 640,
-      height: 360,
+      height: container.clientHeight || 360,
       layout: {
         background: { type: ColorType.Solid, color: getCurrentTheme() === "dark" ? "#172133" : "#ffffff" },
         textColor: getCurrentTheme() === "dark" ? "#c7d2e5" : "#475569"
@@ -796,7 +888,8 @@ async function loadEmbeddedChart(symbol, interval) {
 
     window.requestAnimationFrame(() => {
       state.chart.applyOptions({
-        width: container.clientWidth || 640
+        width: container.clientWidth || 640,
+        height: container.clientHeight || 360
       });
     });
 
@@ -1007,8 +1100,10 @@ function renderShockList(rows) {
                 <strong>${row.baseAsset}</strong>
                 <span>${formatPrice(row.lastPrice)}</span>
               </div>
-              <div class="shock-right">
+              <div class="shock-main">
                 <strong class="${getDeltaClass(row.change5m)}">${formatPercent(row.change5m)}</strong>
+              </div>
+              <div class="shock-right">
                 <span>24H ${formatPercent(row.change24h)}</span>
                 <span>时间 ${row.shockTimeText}</span>
               </div>
@@ -1071,7 +1166,7 @@ function renderHistory(type) {
   }
 
   target.innerHTML = `<div class="history-list">${items
-    .slice(0, 6)
+    .slice(0, 50)
     .map((item) => {
       const resolvedChartSymbol =
         item.chartSymbol || state.rows.find((row) => row.baseAsset === item.symbol)?.symbol || "";
@@ -1105,8 +1200,10 @@ function renderVolumeAlertList(rows) {
                 <strong>${row.baseAsset}</strong>
                 <span>${formatPrice(row.lastPrice)}</span>
               </div>
+              <div class="shock-main">
+                <strong class="${getVolumeMultipleClass(row.volumeMultiple)}">${row.volumeMultiple.toFixed(2)}x</strong>
+              </div>
               <div class="shock-right">
-                <strong class="up">${row.volumeMultiple.toFixed(2)}x</strong>
                 <span class="${getDeltaClass(row.volumeKlineChange)}">K线涨跌 ${formatPercent(row.volumeKlineChange)}</span>
                 <span>15m现量 ${formatCompact(row.latest15mQuoteVolume)} USDT</span>
                 <span>前量 ${formatCompact(row.previous15mQuoteVolume)} USDT</span>
@@ -1227,6 +1324,17 @@ function renderHotEventFeed() {
       .join("");
 }
 
+function getLocalApiEndpoint(path) {
+  const isLocalPage =
+    window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  if (isLocalPage) {
+    return `http://127.0.0.1:8787${path}`;
+  }
+
+  const apiOrigin = getConfiguredApiOrigin();
+  return apiOrigin ? `${apiOrigin}${path}` : path;
+}
+
 async function loadHotEventFeed() {
   if (!hotEventFeed) {
     return;
@@ -1236,8 +1344,7 @@ async function loadHotEventFeed() {
   renderHotEventFeed();
 
   try {
-    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
-    const endpoint = isLocalHost ? "http://127.0.0.1:8787/api/bwe-rss-feed" : "/api/bwe-rss-feed";
+    const endpoint = getLocalApiEndpoint("/api/bwe-rss-feed");
     const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error(`hot feed status ${response.status}`);
@@ -1278,8 +1385,7 @@ async function loadReserveFeed() {
   updateReserveStatusBar();
 
   try {
-    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
-    const endpoint = isLocalHost ? "http://127.0.0.1:8787/api/blockbeats-feed" : "/api/blockbeats-feed";
+    const endpoint = getLocalApiEndpoint("/api/blockbeats-feed");
     const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error(`reserve feed status ${response.status}`);
@@ -1338,33 +1444,121 @@ function startReserveFeedAutoRefresh() {
   }, LISTING_REFRESH_MS);
 }
 
-async function loadListingFeed() {
-  if (!listingFeed) {
+function renderMacroCalendarFeed() {
+  if (!macroCalendarFeed) {
     return;
   }
 
-  if (window.location.protocol === "file:") {
-    if (jin10StatusBar) {
-      jin10StatusBar.innerHTML = `
-        <span class="feed-health-inline">
-          <span class="feed-health-dot failed"></span>
-          <span class="feed-health-text">异常</span>
-          <span class="feed-health-time">file 环境</span>
-        </span>
-      `;
-    }
-    listingFeed.innerHTML = `
-      <div class="feed-item feed-item--compact">
-        <div class="feed-title">本地 file:// 环境无法调用 Vercel API。</div>
-        <div class="feed-meta">当前模式：Jin10 快讯推送</div>
+  if (!state.macroCalendarItems.length) {
+    macroCalendarFeed.innerHTML = `
+        <div class="macro-event-item">
+        <div class="macro-event-title">正在读取宏观日历。</div>
+        <div class="macro-event-meta">来自 Jin10 重要财经日历</div>
       </div>
     `;
     return;
   }
 
+  macroCalendarFeed.innerHTML = state.macroCalendarItems
+    .slice(0, 8)
+    .map((item) => {
+      const isImportant = String(item.importance || "").toLowerCase() === "true" || Number(item.importance || 0) >= 2;
+      return `
+        <a class="macro-event-item" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noreferrer">
+          <div class="macro-event-top">
+            <span class="macro-event-time">${escapeHtml(item.timeText || "--:--")}</span>
+            <span class="macro-event-badge ${isImportant ? "important" : ""}">${isImportant ? "重要" : "日历"}</span>
+          </div>
+          <div class="macro-event-title feed-line-clamp-2">${escapeHtml(item.title || "宏观事件")}</div>
+          ${item.summary ? `<div class="macro-event-summary feed-line-clamp-1">${escapeHtml(item.summary)}</div>` : ""}
+          <div class="macro-event-meta">
+            <span>${escapeHtml(item.dateText || "")}</span>
+            <span>${escapeHtml(item.sourceTag || "BB")}</span>
+          </div>
+        </a>
+      `;
+    })
+    .join("");
+}
+
+function updateMacroCalendarStatusBar() {
+  if (!macroCalendarStatusBar) {
+    return;
+  }
+
+  const statusClass = state.macroCalendarStatus === "live" ? "ok" : state.macroCalendarStatus === "failed" ? "failed" : "";
+  const statusText = state.macroCalendarStatus === "live" ? "正常" : state.macroCalendarStatus === "failed" ? "异常" : "加载中";
+  macroCalendarStatusBar.innerHTML = `
+    <span class="feed-health-inline">
+      <span class="feed-health-dot ${statusClass}"></span>
+      <span class="feed-health-text">${statusText}</span>
+      <span class="feed-health-time">${state.macroCalendarUpdatedAt ? `${state.macroCalendarUpdatedAt} 更新` : "Calendar"}</span>
+    </span>
+  `;
+}
+
+async function loadMacroCalendarFeed() {
+  if (!macroCalendarFeed) {
+    return;
+  }
+
+  if (!state.macroCalendarItems.length) {
+    state.macroCalendarStatus = "connecting";
+    renderMacroCalendarFeed();
+  }
+  updateMacroCalendarStatusBar();
+
   try {
-    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
-    const endpoint = isLocalHost ? "http://127.0.0.1:8787/api/new-listings-feed" : "/api/new-listings-feed";
+    const endpoint = getLocalApiEndpoint("/api/macro-calendar-feed");
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      throw new Error(`macro calendar status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const sourceStatus = String(payload?.sourceStatus?.Jin10Calendar || "failed").toLowerCase();
+    state.macroCalendarStatus = sourceStatus === "ok" ? "live" : "failed";
+    state.macroCalendarUpdatedAt = formatTime(new Date());
+    if (items.length) {
+      state.macroCalendarItems = items;
+    }
+    updateMacroCalendarStatusBar();
+    renderMacroCalendarFeed();
+  } catch (error) {
+    console.error("load macro calendar failed", error);
+    state.macroCalendarStatus = "failed";
+    updateMacroCalendarStatusBar();
+    if (!state.macroCalendarItems.length) {
+      macroCalendarFeed.innerHTML = `
+        <div class="macro-event-item">
+          <div class="macro-event-title">暂时无法读取宏观日历。</div>
+          <div class="macro-event-meta">请检查本地 8787 接口或线上 /api/macro-calendar-feed</div>
+        </div>
+      `;
+    }
+  }
+}
+
+function startMacroCalendarAutoRefresh() {
+  if (state.macroCalendarRefreshTimer) {
+    window.clearInterval(state.macroCalendarRefreshTimer);
+  }
+
+  state.macroCalendarRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      loadMacroCalendarFeed();
+    }
+  }, MACRO_CALENDAR_REFRESH_MS);
+}
+
+async function loadListingFeed() {
+  if (!listingFeed) {
+    return;
+  }
+
+  try {
+    const endpoint = getLocalApiEndpoint("/api/new-listings-feed");
     const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error(`feed status ${response.status}`);
@@ -1532,18 +1726,18 @@ async function loadDashboard() {
 
     const heatTop = [...detailedRows].sort((a, b) => b.heatScore - a.heatScore).slice(0, 10);
     const volumeTop = [...detailedRows].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 10);
-    const gainers = [...detailedRows].sort((a, b) => b.change24h - a.change24h).slice(0, 5);
-    const losers = [...detailedRows].sort((a, b) => a.change24h - b.change24h).slice(0, 5);
+    const gainers = [...detailedRows].sort((a, b) => b.change24h - a.change24h).slice(0, 10);
+    const losers = [...detailedRows].sort((a, b) => a.change24h - b.change24h).slice(0, 10);
     const positiveFunding = [...eligibleBaseRows]
       .sort((a, b) => b.fundingRate - a.fundingRate)
-      .slice(0, 5)
+      .slice(0, 10)
       .map((row) => ({
         ...row,
         fundingCountdownText: row.fundingCountdownText || formatFundingInterval(row.fundingIntervalHours || 8)
       }));
     const negativeFunding = [...eligibleBaseRows]
       .sort((a, b) => a.fundingRate - b.fundingRate)
-      .slice(0, 5)
+      .slice(0, 10)
       .map((row) => ({
         ...row,
         fundingCountdownText: row.fundingCountdownText || formatFundingInterval(row.fundingIntervalHours || 8)
@@ -1578,12 +1772,14 @@ async function loadDashboard() {
     state.activeVolumeSymbols = new Set(volumeAlerts.map((row) => row.symbol));
 
     state.rows = detailedRows;
+    state.moversGainers = gainers;
+    state.moversLosers = losers;
+    state.positiveFunding = positiveFunding;
+    state.negativeFunding = negativeFunding;
     renderVolumeTopStrip(volumeTop);
     renderTable("heatTable", heatTop, "heat");
-    renderTable("gainersTable", gainers, "movers");
-    renderTable("losersTable", losers, "movers");
-    renderTable("positiveFundingTable", positiveFunding, "funding");
-    renderTable("negativeFundingTable", negativeFunding, "funding");
+    renderMoversRanking();
+    renderFundingRanking();
     renderShockList(shocks);
     renderVolumeAlertList(volumeAlerts);
     ensureChartSelection(detailedRows);
@@ -1608,7 +1804,7 @@ async function loadDashboard() {
     const errorHint = isLocalFile ? "本地 file:// 环境下，浏览器可能拦截或限制币安接口请求" : "请检查网络或币安接口可访问性";
     setStatus("加载失败");
     const failHtml = `<div class="table-row"><div class="cell">当前未能拉取币安数据，请检查网络或接口可访问性。</div></div>`;
-    ["heatTable", "gainersTable", "losersTable", "positiveFundingTable", "negativeFundingTable"].forEach((id) => {
+    ["heatTable", "moversTable", "fundingTable"].forEach((id) => {
       document.getElementById(id).innerHTML = failHtml;
     });
     if (volumeTopStrip) {
@@ -1659,6 +1855,26 @@ function startListingAutoRefresh() {
 
 refreshButton.addEventListener("click", loadDashboard);
 document.addEventListener("click", (event) => {
+  const moversTrigger = event.target.closest("[data-movers-mode]");
+  if (moversTrigger) {
+    const mode = moversTrigger.getAttribute("data-movers-mode");
+    if (mode === "gainers" || mode === "losers") {
+      state.moversMode = mode;
+      renderMoversRanking();
+    }
+    return;
+  }
+
+  const fundingTrigger = event.target.closest("[data-funding-mode]");
+  if (fundingTrigger) {
+    const mode = fundingTrigger.getAttribute("data-funding-mode");
+    if (mode === "positive" || mode === "negative") {
+      state.fundingMode = mode;
+      renderFundingRanking();
+    }
+    return;
+  }
+
   const trigger = event.target.closest(".symbol-trigger");
   if (trigger) {
     const symbol = trigger.getAttribute("data-chart-symbol");
@@ -1692,6 +1908,7 @@ document.addEventListener("visibilitychange", () => {
     loadListingFeed();
     loadHotEventFeed();
     loadReserveFeed();
+    loadMacroCalendarFeed();
     if (state.selectedChartSymbol) {
       refreshCurrentChart();
       startChartRealtime(state.selectedChartSymbol, state.selectedChartInterval);
@@ -1717,9 +1934,11 @@ loadDashboard();
 loadListingFeed();
 loadHotEventFeed();
 loadReserveFeed();
+loadMacroCalendarFeed();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
 startHotFeedAutoRefresh();
 startReserveFeedAutoRefresh();
+startMacroCalendarAutoRefresh();
 renderHistory("shock");
 renderHistory("volume");

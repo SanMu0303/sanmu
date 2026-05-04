@@ -1,10 +1,11 @@
 "use strict";
 
 const http = require("http");
-const { loadListingFeedPayload } = require("./listing-feed-core");
+const { loadListingFeedPayload, loadMacroCalendarPayload } = require("./listing-feed-core");
 const { loadBweRssPayload } = require("./bwe-rss-core");
 const { loadBinanceNewsPayload } = require("./binance-news-core");
 const { loadBlockBeatsPayload } = require("./blockbeats-core");
+const { loadBinanceProxyPayload } = require("./binance-proxy-core");
 
 const PORT = 8787;
 
@@ -18,6 +19,25 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     res.end();
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/binance-proxy") {
+    try {
+      const payload = await loadBinanceProxyPayload(url.searchParams.get("path") || "");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 502;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load binance data",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
     return;
   }
 
@@ -90,6 +110,25 @@ const server = http.createServer(async (req, res) => {
       res.end(
         JSON.stringify({
           error: "failed to load blockbeats feed",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/macro-calendar-feed") {
+    try {
+      const payload = await loadMacroCalendarPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load macro calendar feed",
           detail: error instanceof Error ? error.message : String(error)
         })
       );

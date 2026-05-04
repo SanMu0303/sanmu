@@ -52,6 +52,37 @@ async function loadBlockBeatsPayload() {
   };
 }
 
+async function loadBlockBeatsMacroCalendarPayload() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), BLOCKBEATS_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(BLOCKBEATS_PAGE_URL, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "text/html"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`status ${response.status}`);
+    }
+
+    const html = await response.text();
+    const items = extractNuxtCalendarItems(html);
+    return {
+      source: "blockbeats-calendar",
+      sourceStatus: {
+        BlockBeatsCalendar: items.length ? "ok" : "failed"
+      },
+      items
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function fetchFirstAvailableFlash() {
   const errors = [];
 
@@ -144,17 +175,12 @@ async function fetchBlockBeatsPageItems() {
 }
 
 function extractNuxtFlashItems(html) {
-  const match = String(html || "").match(/window\.__NUXT__=\(function[\s\S]*?\);\s*<\/script>/);
-  if (!match) {
+  const nuxt = extractNuxtPayload(html);
+  if (!nuxt) {
     return [];
   }
 
-  const script = match[0].replace(/<\/script>$/, "");
-  const sandbox = { window: {} };
-  vm.runInNewContext(script, sandbox, { timeout: 1000 });
-  const nuxt = sandbox.window.__NUXT__;
   const rawItems = [];
-
   collectFlashLikeItems(nuxt, rawItems);
 
   return rawItems
@@ -186,6 +212,53 @@ function extractNuxtFlashItems(html) {
     .map(({ dedupeKey, ...item }) => item);
 }
 
+function extractNuxtCalendarItems(html) {
+  const nuxt = extractNuxtPayload(html);
+  if (!nuxt) {
+    return [];
+  }
+
+  const rawItems = [];
+  collectCalendarLikeItems(nuxt, rawItems);
+
+  return rawItems
+    .map((item) => {
+      const timestamp = parseCalendarTimestamp(item);
+      return {
+        title: normalizeText(item.event_title || item.title || item.name || "宏观事件"),
+        eventTime: timestamp || Date.now(),
+        timeText: formatCalendarTime(timestamp || Date.now()),
+        dateText: formatCalendarDate(timestamp || Date.now()),
+        importance: item.importance || item.level || item.star || item.is_hot || "",
+        sourceTag: "BB",
+        link: item.url || item.link || "https://www.theblockbeats.info/newsflash"
+      };
+    })
+    .filter((item) => item.title)
+    .reduce((items, item) => {
+      const key = `${normalizeText(item.title).toLowerCase()}-${Math.floor(Number(item.eventTime || 0) / 60000)}`;
+      if (!items.some((current) => current.dedupeKey === key)) {
+        items.push({ ...item, dedupeKey: key });
+      }
+      return items;
+    }, [])
+    .sort((a, b) => Number(a.eventTime || 0) - Number(b.eventTime || 0))
+    .slice(0, 12)
+    .map(({ dedupeKey, ...item }) => item);
+}
+
+function extractNuxtPayload(html) {
+  const match = String(html || "").match(/window\.__NUXT__=\(function[\s\S]*?\);\s*<\/script>/);
+  if (!match) {
+    return null;
+  }
+
+  const script = match[0].replace(/<\/script>$/, "");
+  const sandbox = { window: {} };
+  vm.runInNewContext(script, sandbox, { timeout: 1000 });
+  return sandbox.window.__NUXT__;
+}
+
 function collectFlashLikeItems(value, output) {
   if (!value || output.length > 200) {
     return;
@@ -204,6 +277,28 @@ function collectFlashLikeItems(value, output) {
   if (typeof value === "object") {
     for (const child of Object.values(value)) {
       collectFlashLikeItems(child, output);
+    }
+  }
+}
+
+function collectCalendarLikeItems(value, output) {
+  if (!value || output.length > 100) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (item && typeof item === "object" && typeof item.event_title === "string") {
+        output.push(item);
+      }
+      collectCalendarLikeItems(item, output);
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const child of Object.values(value)) {
+      collectCalendarLikeItems(child, output);
     }
   }
 }
@@ -314,6 +409,53 @@ function truncateText(value, maxLength) {
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
+function parseCalendarTimestamp(item) {
+  const candidates = [
+    item?.event_time,
+    item?.start_time,
+    item?.start_date,
+    item?.date_time,
+    item?.date,
+    item?.time,
+    item?.publish_time
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null || candidate === "") {
+      continue;
+    }
+
+    if (typeof candidate === "number") {
+      return candidate > 100000000000 ? candidate : candidate * 1000;
+    }
+
+    const parsed = Date.parse(String(candidate).replace(/-/g, "/"));
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function formatCalendarDate(timestamp) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+function formatCalendarTime(timestamp) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(timestamp));
+}
+
 module.exports = {
-  loadBlockBeatsPayload
+  loadBlockBeatsPayload,
+  loadBlockBeatsMacroCalendarPayload
 };

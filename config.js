@@ -1,4 +1,5 @@
 window.DASHBOARD_CONFIG = {
+  apiOrigin: "",
   socialHeat: {
     enabled: false,
     endpoint: "",
