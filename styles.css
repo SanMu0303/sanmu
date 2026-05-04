@@ -506,6 +506,12 @@ body.theme-dark .history-block {
   line-height: 1.25;
 }
 
+.feed-item--fresh .feed-title,
+.feed-item--fresh .feed-subtitle,
+.feed-item--fresh .feed-meta {
+  color: var(--red);
+}
+
 .feed-subtitle {
   font-size: 11px;
   line-height: 1.4;

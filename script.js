@@ -2,9 +2,12 @@ const DASHBOARD_REFRESH_MS = 30000;
 const LISTING_REFRESH_MS = 30000;
 const HOT_FEED_REFRESH_MS = 30000;
 const MACRO_CALENDAR_REFRESH_MS = 300000;
+const FRESH_NEWS_WINDOW_MS = 5 * 60 * 1000;
+const CHART_POLL_REFRESH_MS = 5000;
 const REQUEST_TIMEOUT_MS = 8000;
 const KLINE_CONCURRENCY = 6;
 const MIN_24H_QUOTE_VOLUME = 10000000;
+const MIN_VOLUME_ALERT_QUOTE_VOLUME = 500000;
 const PERIODS = {
   p5m: "5m",
   p15m: "15m",
@@ -64,6 +67,10 @@ const macroCalendarStatusBar = document.getElementById("macroCalendarStatusBar")
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
 const THEME_STORAGE_KEY = "dashboard_theme_mode_v1";
+const HEAT_SCORE_STORAGE_KEY = "dashboard_heat_score_state_v1";
+const HEAT_SCORE_SMOOTHING = 0.32;
+const HEAT_SCORE_MAX_STEP = 4;
+const HEAT_SCORE_STORAGE_LIMIT = 260;
 const state = {
   rows: [],
   selectedChartSymbol: "",
@@ -94,7 +101,9 @@ const state = {
   reserveFeedRefreshTimer: null,
   macroCalendarRefreshTimer: null,
   clockTimer: null,
+  freshNewsTimer: null,
   dashboardLoading: false,
+  heatScoreMap: loadHeatScoreState(),
   moversMode: "gainers",
   moversGainers: [],
   moversLosers: [],
@@ -415,6 +424,61 @@ function getHeatScore(row) {
   const momentumScore = Math.min(Math.max((row.change24h + 10) * 4, 0), 100);
   const shortTermScore = Math.min(Math.max(Math.abs(row.change15m) * 10, 0), 100);
   return Math.round(volumeScore * 0.4 + momentumScore * 0.35 + shortTermScore * 0.25);
+}
+
+function loadHeatScoreState() {
+  try {
+    const raw = window.localStorage.getItem(HEAT_SCORE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? new Map(Object.entries(parsed)) : new Map();
+  } catch (error) {
+    return new Map();
+  }
+}
+
+function saveHeatScoreState(rows) {
+  try {
+    const payload = {};
+    rows
+      .slice()
+      .sort((a, b) => b.quoteVolume - a.quoteVolume)
+      .slice(0, HEAT_SCORE_STORAGE_LIMIT)
+      .forEach((row) => {
+        payload[row.symbol] = {
+          score: row.heatScore,
+          updatedAt: Date.now()
+        };
+      });
+    window.localStorage.setItem(HEAT_SCORE_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.error("save heat score state failed", error);
+  }
+}
+
+function getStableHeatScore(row) {
+  const rawScore = getHeatScore(row);
+  const previous = state.heatScoreMap.get(row.symbol);
+  const previousScore = Number(previous?.score);
+
+  if (!Number.isFinite(previousScore)) {
+    return rawScore;
+  }
+
+  const blendedScore = previousScore + (rawScore - previousScore) * HEAT_SCORE_SMOOTHING;
+  const limitedDelta = Math.max(-HEAT_SCORE_MAX_STEP, Math.min(HEAT_SCORE_MAX_STEP, blendedScore - previousScore));
+  return Math.round(Math.max(0, Math.min(100, previousScore + limitedDelta)));
+}
+
+function isFreshNews(publishTime) {
+  const timestamp = Number(publishTime || 0);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return false;
+  }
+  return Date.now() - timestamp <= FRESH_NEWS_WINDOW_MS;
+}
+
+function getFreshNewsClass(publishTime) {
+  return isFreshNews(publishTime) ? " feed-item--fresh" : "";
 }
 
 async function fetchJson(path, options = {}) {
@@ -966,12 +1030,26 @@ async function refreshCurrentChart() {
   }
 }
 
+function startChartPollingFallback(socketKey) {
+  if (state.chartRefreshTimer) {
+    window.clearInterval(state.chartRefreshTimer);
+  }
+
+  state.chartRefreshTimer = window.setInterval(() => {
+    if (state.chartSocketKey !== socketKey || document.hidden) {
+      return;
+    }
+    refreshCurrentChart();
+  }, CHART_POLL_REFRESH_MS);
+}
+
 function startChartRealtime(symbol, interval) {
   stopChartRealtime();
 
   const socketKey = `${symbol}:${interval}`;
   state.chartSocketKey = socketKey;
   state.chartLastMessageAt = Date.now();
+  startChartPollingFallback(socketKey);
 
   const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
 
@@ -1026,8 +1104,7 @@ function startChartRealtime(symbol, interval) {
       if (state.chartSocketKey !== socketKey) {
         return;
       }
-
-      state.chartRefreshTimer = window.setTimeout(() => {
+      window.setTimeout(() => {
         if (state.chartSocketKey === socketKey) {
           refreshCurrentChart().then(() => startChartRealtime(symbol, interval));
         }
@@ -1060,9 +1137,6 @@ function startChartRealtime(symbol, interval) {
     }, 4000);
   } catch (error) {
     console.error("chart websocket init failed", error);
-    state.chartRefreshTimer = window.setInterval(() => {
-      refreshCurrentChart();
-    }, 5000);
   }
 }
 
@@ -1271,7 +1345,7 @@ function renderReserveFeed() {
   reserveFeed.innerHTML = state.reserveItems
     .map(
       (item) => `
-        <a class="feed-item feed-item--compact" href="${item.link}" target="_blank" rel="noreferrer">
+        <a class="feed-item feed-item--compact${getFreshNewsClass(item.publishTime)}" href="${item.link}" target="_blank" rel="noreferrer">
           <div class="feed-title feed-line-clamp-2">${escapeHtml(item.title || "未命名公告")}</div>
           <div class="feed-meta">
             <span class="feed-source-tag">${escapeHtml(item.sourceTag || "BN")}</span>
@@ -1316,7 +1390,7 @@ function renderHotEventFeed() {
       .slice(0, 8)
       .map(
         (item) => `
-          <a class="feed-item" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noreferrer">
+          <a class="feed-item${getFreshNewsClass(item.publishTime)}" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noreferrer">
             <div class="feed-title">${escapeHtml(item.primary || "未命名事件")}</div>
             ${item.secondary ? `<div class="feed-subtitle">${escapeHtml(item.secondary)}</div>` : ""}
             <div class="feed-summary-stack">
@@ -1387,6 +1461,20 @@ function startHotFeedAutoRefresh() {
       loadHotEventFeed();
     }
   }, HOT_FEED_REFRESH_MS);
+}
+
+function startFreshNewsTimer() {
+  if (state.freshNewsTimer) {
+    window.clearInterval(state.freshNewsTimer);
+  }
+
+  state.freshNewsTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      renderReserveFeed();
+      renderHotEventFeed();
+      renderBottomFeeds();
+    }
+  }, 60000);
 }
 
 async function loadReserveFeed() {
@@ -1608,7 +1696,7 @@ async function loadListingFeed() {
     listingFeed.innerHTML = items
       .map(
         (item) => `
-          <a class="feed-item feed-item--compact" href="${item.link}" target="_blank" rel="noreferrer">
+          <a class="feed-item feed-item--compact${getFreshNewsClass(item.publishTime)}" href="${item.link}" target="_blank" rel="noreferrer">
             <div class="feed-title feed-line-clamp-2">${item.title}</div>
             <div class="feed-meta feed-line-clamp-1">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
           </a>
@@ -1717,7 +1805,7 @@ async function loadDashboard() {
 
         fullRow.volumeMultiple =
           fullRow.previous15mVolume > 0 ? fullRow.latest15mVolume / fullRow.previous15mVolume : 0;
-        fullRow.heatScore = getHeatScore(fullRow);
+        fullRow.heatScore = getStableHeatScore(fullRow);
         return fullRow;
       } catch (error) {
         console.error(`metrics failed for ${row.symbol}`, error);
@@ -1735,7 +1823,7 @@ async function loadDashboard() {
           volumeKlineChange: 0,
           volumeMultiple: 0
         };
-        fallbackRow.heatScore = getHeatScore(fallbackRow);
+        fallbackRow.heatScore = getStableHeatScore(fallbackRow);
         return fallbackRow;
       }
     });
@@ -1763,7 +1851,7 @@ async function loadDashboard() {
       .sort((a, b) => Math.abs(b.change5m) - Math.abs(a.change5m))
       .slice(0, 12);
     const volumeAlerts = [...detailedRows]
-      .filter((row) => row.volumeMultiple >= 3)
+      .filter((row) => row.volumeMultiple >= 3 && row.latest15mQuoteVolume >= MIN_VOLUME_ALERT_QUOTE_VOLUME)
       .sort((a, b) => b.volumeMultiple - a.volumeMultiple)
       .slice(0, 12);
 
@@ -1788,6 +1876,8 @@ async function loadDashboard() {
     state.activeVolumeSymbols = new Set(volumeAlerts.map((row) => row.symbol));
 
     state.rows = detailedRows;
+    state.heatScoreMap = new Map(detailedRows.map((row) => [row.symbol, { score: row.heatScore, updatedAt: Date.now() }]));
+    saveHeatScoreState(detailedRows);
     state.moversGainers = gainers;
     state.moversLosers = losers;
     state.positiveFunding = positiveFunding;
@@ -1956,5 +2046,6 @@ startListingAutoRefresh();
 startHotFeedAutoRefresh();
 startReserveFeedAutoRefresh();
 startMacroCalendarAutoRefresh();
+startFreshNewsTimer();
 renderHistory("shock");
 renderHistory("volume");
