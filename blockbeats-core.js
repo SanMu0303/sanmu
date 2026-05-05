@@ -16,40 +16,73 @@ const BLOCKBEATS_RSS_URLS = [
   "https://api.theblockbeats.news/v2/rss/article",
   "https://api.theblockbeats.news/v1/open-api/home-xml"
 ];
-const BLOCKBEATS_TIMEOUT_MS = 6000;
+const BLOCKBEATS_TIMEOUT_MS = 3500;
+const BLOCKBEATS_TOTAL_TIMEOUT_MS = 6500;
 
 async function loadBlockBeatsPayload() {
-  const flashItems = await fetchFirstAvailableFlash();
-  if (flashItems.length) {
+  const results = await settleWithin(
+    [
+      loadBlockBeatsSource("blockbeats-page", fetchBlockBeatsPageItems),
+      loadBlockBeatsSource("blockbeats-flash", fetchFirstAvailableFlash),
+      loadBlockBeatsSource("blockbeats-rss", fetchFirstAvailableRssItems)
+    ],
+    BLOCKBEATS_TOTAL_TIMEOUT_MS
+  );
+
+  const available = results
+    .filter((result) => result && Array.isArray(result.items) && result.items.length)
+    .sort((a, b) => {
+      const priorityDelta = getBlockBeatsSourcePriority(b.source) - getBlockBeatsSourcePriority(a.source);
+      return priorityDelta || Number(b.items.length || 0) - Number(a.items.length || 0);
+    });
+
+  if (available.length) {
+    const primary = available[0];
     return {
-      source: "blockbeats-flash",
+      source: primary.source,
       sourceStatus: {
         BlockBeats: "ok"
       },
-      items: flashItems
+      items: primary.items
     };
   }
-
-  const rssItems = await fetchFirstAvailableRssItems();
-  if (rssItems.length) {
-    return {
-      source: "blockbeats-rss",
-      sourceStatus: {
-        BlockBeats: "ok"
-      },
-      items: rssItems
-    };
-  }
-
-  const pageItems = await fetchBlockBeatsPageItems();
 
   return {
     source: "blockbeats-page",
     sourceStatus: {
-      BlockBeats: pageItems.length ? "ok" : "failed"
+      BlockBeats: "failed"
     },
-    items: pageItems
+    items: []
   };
+}
+
+async function loadBlockBeatsSource(source, loader) {
+  try {
+    const items = await loader();
+    return { source, items: dedupeFeedItems(items) };
+  } catch (error) {
+    return { source, items: [] };
+  }
+}
+
+function getBlockBeatsSourcePriority(source) {
+  return {
+    "blockbeats-page": 3,
+    "blockbeats-flash": 2,
+    "blockbeats-rss": 1
+  }[source] || 0;
+}
+
+async function settleWithin(promises, timeoutMs) {
+  let timeoutId;
+  const timeoutPromise = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve([]), timeoutMs);
+  });
+
+  const settledPromise = Promise.all(promises).catch(() => []);
+  const results = await Promise.race([settledPromise, timeoutPromise]);
+  clearTimeout(timeoutId);
+  return Array.isArray(results) ? results : [];
 }
 
 async function loadBlockBeatsMacroCalendarPayload() {
@@ -407,6 +440,31 @@ function truncateText(value, maxLength) {
   }
 
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function dedupeFeedItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && item.title)
+    .reduce((output, item) => {
+      const key = `${normalizeText(item.title).toLowerCase()}-${Math.floor(Number(item.publishTime || 0) / 60000)}`;
+      const existingIndex = output.findIndex((current) => current.dedupeKey === key);
+      const nextItem = { ...item, dedupeKey: key };
+
+      if (existingIndex === -1) {
+        output.push(nextItem);
+        return output;
+      }
+
+      const existing = output[existingIndex];
+      if (String(nextItem.summary || "").length > String(existing.summary || "").length) {
+        output[existingIndex] = nextItem;
+      }
+
+      return output;
+    }, [])
+    .sort((a, b) => Number(b.publishTime || 0) - Number(a.publishTime || 0))
+    .slice(0, 80)
+    .map(({ dedupeKey, ...item }) => item);
 }
 
 function parseCalendarTimestamp(item) {
