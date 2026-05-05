@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(
       JSON.stringify({
-        error: "failed to load sector feed",
+        error: "failed to load social trend feed",
         detail: error instanceof Error ? error.message : String(error)
       })
     );

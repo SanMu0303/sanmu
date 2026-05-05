@@ -403,6 +403,7 @@ body.theme-dark .macro-calendar-panel {
   font-weight: 900;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
+  color: var(--accent);
 }
 
 .sector-meta {

@@ -1603,8 +1603,8 @@ function renderSectorFeed() {
   if (!state.sectorItems.length) {
     sectorFeed.innerHTML = `
       <div class="feed-item feed-item--compact">
-        <div class="feed-title">${state.sectorStatus === "failed" ? "暂时无法读取板块数据。" : "正在读取板块热度。"}</div>
-        <div class="feed-meta">数据源：CoinGecko${state.sectorStatus === "failed" ? "，请检查 /api/sector-feed" : " / CoinMarketCap 可选"}</div>
+        <div class="feed-title">${state.sectorStatus === "failed" ? "暂时无法读取社媒热度。" : "正在读取社媒热度。"}</div>
+        <div class="feed-meta">${state.sectorStatus === "failed" ? "请检查 /api/sector-feed 或 X/Binance Square 源" : "数据源：Binance Square / X 可选"}</div>
       </div>
     `;
     return;
@@ -1613,13 +1613,16 @@ function renderSectorFeed() {
   sectorFeed.innerHTML = state.sectorItems
     .slice(0, 12)
     .map((item) => {
-      const topCoins = Array.isArray(item.topCoins) && item.topCoins.length ? item.topCoins.join(" / ") : "暂无";
+      const tags = Array.isArray(item.tags) && item.tags.length ? item.tags.join(" / ") : "社媒";
+      const xText = Number(item.xMentions || 0) > 0 ? `X ${formatCompactKMB(Number(item.xMentions || 0), 0)}` : "X 未接入";
+      const squareText = `广场 ${Number(item.squareScore || 0)}`;
+      const newsText = Number(item.newsMentions || 0) > 0 ? `资讯 ${Number(item.newsMentions || 0)}` : "资讯 0";
       return `
         <div class="sector-item">
-          <div class="sector-name">${escapeHtml(item.name || "Unknown")}</div>
-          <div class="sector-change ${getDeltaClass(Number(item.change24h || 0))}">${formatPercent(Number(item.change24h || 0))}</div>
+          <div class="sector-name">${escapeHtml(item.symbol || "Unknown")}</div>
+          <div class="sector-change">${Number(item.score || 0)}</div>
           <div class="sector-meta">
-            成交 ${formatSectorMoney(Number(item.volume24h || 0))} · 市值 ${formatSectorMoney(Number(item.marketCap || 0))} · ${escapeHtml(topCoins)}
+            ${xText} · ${squareText} · ${newsText} · 24H <span class="${getDeltaClass(Number(item.priceChange24h || 0))}">${formatPercent(Number(item.priceChange24h || 0))}</span> · ${escapeHtml(tags)}
           </div>
         </div>
       `;
@@ -1638,7 +1641,7 @@ function updateSectorStatusBar() {
     <span class="feed-health-inline">
       <span class="feed-health-dot ${statusClass}"></span>
       <span class="feed-health-text">${statusText}</span>
-      <span class="feed-health-time">${state.sectorUpdatedAt ? `${state.sectorUpdatedAt} 更新` : "CG/CMC"}</span>
+      <span class="feed-health-time">${state.sectorUpdatedAt ? `${state.sectorUpdatedAt} 更新` : "Square/X"}</span>
     </span>
   `;
 }
@@ -1711,8 +1714,9 @@ async function loadSectorFeed() {
 
     const payload = await response.json();
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const coingeckoStatus = String(payload?.sourceStatus?.CoinGecko || "").toLowerCase();
-    state.sectorStatus = items.length && coingeckoStatus !== "failed" ? "live" : "failed";
+    const squareStatus = String(payload?.sourceStatus?.BinanceSquare || "").toLowerCase();
+    const newsStatus = String(payload?.sourceStatus?.NewsMentions || "").toLowerCase();
+    state.sectorStatus = items.length && (squareStatus !== "failed" || newsStatus === "ok") ? "live" : "failed";
     state.sectorUpdatedAt = formatTime(new Date());
     if (items.length) {
       state.sectorItems = items;
