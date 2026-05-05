@@ -1,6 +1,7 @@
 const DASHBOARD_REFRESH_MS = 30000;
 const LISTING_REFRESH_MS = 30000;
 const HOT_FEED_REFRESH_MS = 30000;
+const SECTOR_FEED_REFRESH_MS = 60000;
 const MACRO_CALENDAR_REFRESH_MS = 300000;
 const FRESH_NEWS_WINDOW_MS = 5 * 60 * 1000;
 const CHART_POLL_REFRESH_MS = 5000;
@@ -60,10 +61,12 @@ const volumeHistoryList = document.getElementById("volumeHistoryList");
 const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
 const reserveFeed = document.getElementById("reserveFeed");
+const sectorFeed = document.getElementById("sectorFeed");
 const macroCalendarFeed = document.getElementById("macroCalendarFeed");
 const bweStatusBar = document.getElementById("bweStatusBar");
 const jin10StatusBar = document.getElementById("jin10StatusBar");
 const binanceNewsStatusBar = document.getElementById("binanceNewsStatusBar");
+const sectorStatusBar = document.getElementById("sectorStatusBar");
 const macroCalendarStatusBar = document.getElementById("macroCalendarStatusBar");
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
@@ -106,6 +109,9 @@ const state = {
   reserveItems: [],
   reserveStatus: "idle",
   reserveUpdatedAt: "",
+  sectorItems: [],
+  sectorStatus: "idle",
+  sectorUpdatedAt: "",
   macroCalendarItems: [],
   macroCalendarStatus: "idle",
   macroCalendarUpdatedAt: "",
@@ -113,6 +119,7 @@ const state = {
   listingRefreshTimer: null,
   hotFeedRefreshTimer: null,
   reserveFeedRefreshTimer: null,
+  sectorFeedRefreshTimer: null,
   macroCalendarRefreshTimer: null,
   clockTimer: null,
   freshNewsTimer: null,
@@ -365,6 +372,14 @@ function formatCompactKMB(value, digits = 2) {
   }
 
   return `${sign}${absValue.toFixed(digits).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")}`;
+}
+
+function formatSectorMoney(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) {
+    return "--";
+  }
+  return `$${formatCompactKMB(number, 2)}`;
 }
 
 function formatFunding(value) {
@@ -1578,6 +1593,56 @@ function renderHotEventFeed() {
       .join("");
 }
 
+function renderSectorFeed() {
+  if (!sectorFeed) {
+    return;
+  }
+
+  updateSectorStatusBar();
+
+  if (!state.sectorItems.length) {
+    sectorFeed.innerHTML = `
+      <div class="feed-item feed-item--compact">
+        <div class="feed-title">${state.sectorStatus === "failed" ? "暂时无法读取板块数据。" : "正在读取板块热度。"}</div>
+        <div class="feed-meta">数据源：CoinGecko${state.sectorStatus === "failed" ? "，请检查 /api/sector-feed" : " / CoinMarketCap 可选"}</div>
+      </div>
+    `;
+    return;
+  }
+
+  sectorFeed.innerHTML = state.sectorItems
+    .slice(0, 12)
+    .map((item) => {
+      const topCoins = Array.isArray(item.topCoins) && item.topCoins.length ? item.topCoins.join(" / ") : "暂无";
+      return `
+        <div class="sector-item">
+          <div class="sector-name">${escapeHtml(item.name || "Unknown")}</div>
+          <div class="sector-change ${getDeltaClass(Number(item.change24h || 0))}">${formatPercent(Number(item.change24h || 0))}</div>
+          <div class="sector-meta">
+            成交 ${formatSectorMoney(Number(item.volume24h || 0))} · 市值 ${formatSectorMoney(Number(item.marketCap || 0))} · ${escapeHtml(topCoins)}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function updateSectorStatusBar() {
+  if (!sectorStatusBar) {
+    return;
+  }
+
+  const statusClass = state.sectorStatus === "live" ? "ok" : state.sectorStatus === "failed" ? "failed" : "";
+  const statusText = state.sectorStatus === "live" ? "正常" : state.sectorStatus === "failed" ? "异常" : "加载中";
+  sectorStatusBar.innerHTML = `
+    <span class="feed-health-inline">
+      <span class="feed-health-dot ${statusClass}"></span>
+      <span class="feed-health-text">${statusText}</span>
+      <span class="feed-health-time">${state.sectorUpdatedAt ? `${state.sectorUpdatedAt} 更新` : "CG/CMC"}</span>
+    </span>
+  `;
+}
+
 function getLocalApiEndpoint(path) {
   const isLocalPage =
     window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname);
@@ -1625,6 +1690,51 @@ function startHotFeedAutoRefresh() {
       loadHotEventFeed();
     }
   }, HOT_FEED_REFRESH_MS);
+}
+
+async function loadSectorFeed() {
+  if (!sectorFeed) {
+    return;
+  }
+
+  if (!state.sectorItems.length) {
+    state.sectorStatus = "connecting";
+  }
+  renderSectorFeed();
+
+  try {
+    const endpoint = getLocalApiEndpoint("/api/sector-feed");
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      throw new Error(`sector feed status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const coingeckoStatus = String(payload?.sourceStatus?.CoinGecko || "").toLowerCase();
+    state.sectorStatus = items.length && coingeckoStatus !== "failed" ? "live" : "failed";
+    state.sectorUpdatedAt = formatTime(new Date());
+    if (items.length) {
+      state.sectorItems = items;
+    }
+    renderSectorFeed();
+  } catch (error) {
+    console.error("load sector feed failed", error);
+    state.sectorStatus = "failed";
+    renderSectorFeed();
+  }
+}
+
+function startSectorFeedAutoRefresh() {
+  if (state.sectorFeedRefreshTimer) {
+    window.clearInterval(state.sectorFeedRefreshTimer);
+  }
+
+  state.sectorFeedRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      loadSectorFeed();
+    }
+  }, SECTOR_FEED_REFRESH_MS);
 }
 
 function startFreshNewsTimer() {
@@ -2189,6 +2299,7 @@ document.addEventListener("visibilitychange", () => {
     loadHotEventFeed();
     loadReserveFeed();
     loadMacroCalendarFeed();
+    loadSectorFeed();
     if (state.selectedChartSymbol) {
       refreshCurrentChart();
       startChartRealtime(state.selectedChartSymbol, state.selectedChartInterval);
@@ -2215,11 +2326,13 @@ loadListingFeed();
 loadHotEventFeed();
 loadReserveFeed();
 loadMacroCalendarFeed();
+loadSectorFeed();
 startDashboardAutoRefresh();
 startListingAutoRefresh();
 startHotFeedAutoRefresh();
 startReserveFeedAutoRefresh();
 startMacroCalendarAutoRefresh();
+startSectorFeedAutoRefresh();
 startFreshNewsTimer();
 renderHistory("shock");
 renderHistory("volume");
