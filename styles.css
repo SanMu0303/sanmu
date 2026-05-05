@@ -108,6 +108,30 @@ button {
   overflow: hidden;
 }
 
+.page-placeholder {
+  min-height: calc(100vh - 110px);
+  display: grid;
+  place-items: center;
+}
+
+.placeholder-panel {
+  width: min(720px, 100%);
+  padding: 34px;
+  text-align: center;
+}
+
+.placeholder-panel h2 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.placeholder-panel p:last-child {
+  margin: 0 auto;
+  max-width: 520px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .volume-strip {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
@@ -181,6 +205,42 @@ body.theme-dark .volume-chip:hover {
   gap: 10px;
 }
 
+.top-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 18px;
+  margin-right: auto;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+}
+
+.top-nav-link {
+  min-width: 48px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.top-nav-link:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.top-nav-link.active {
+  color: #ffffff;
+  background: var(--accent);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
 .brand-mark {
   width: 28px;
   height: 28px;
@@ -247,6 +307,11 @@ body.theme-dark .theme-toggle-button {
   border-color: #d6dfec;
   background: #f3f7ff;
   color: #111827;
+}
+
+html.theme-dark .top-nav,
+body.theme-dark .top-nav {
+  background: rgba(15, 23, 42, 0.52);
 }
 
 html.theme-dark .topbar,
@@ -780,6 +845,10 @@ body.theme-dark .history-block {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--panel-soft);
+}
+
+.heat-mode-toggle {
+  margin-left: auto;
 }
 
 .movers-toggle-button {
@@ -1425,6 +1494,16 @@ body.theme-dark .alert-red {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+
+  .top-nav {
+    width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .top-nav-link {
+    flex: 1;
   }
 
   .dashboard-grid {

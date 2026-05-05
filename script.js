@@ -49,6 +49,7 @@ const updateTimeNode = document.getElementById("updateTime");
 const fetchStatusNode = document.getElementById("fetchStatus");
 const tradingviewPanel = document.getElementById("tradingviewPanel");
 const volumeTopStrip = document.getElementById("volumeTopStrip");
+const heatTitle = document.getElementById("heatTitle");
 const moversTitle = document.getElementById("moversTitle");
 const moversTable = document.getElementById("moversTable");
 const fundingTitle = document.getElementById("fundingTitle");
@@ -71,6 +72,19 @@ const HEAT_SCORE_STORAGE_KEY = "dashboard_heat_score_state_v1";
 const HEAT_SCORE_SMOOTHING = 0.32;
 const HEAT_SCORE_MAX_STEP = 4;
 const HEAT_SCORE_STORAGE_LIMIT = 260;
+const HEAT_WEIGHTS = {
+  trend: 0.22,
+  volume: 0.17,
+  move: 0.14,
+  listing: 0.05,
+  socialHype: 0.13,
+  smartMoney: 0.10,
+  meme: 0.07,
+  x: 0.07,
+  square: 0.05
+};
+const MAX_NEGATIVE_FUNDING_BONUS = 8;
+const NEGATIVE_FUNDING_FULL_BONUS_RATE_PCT = 0.05;
 const state = {
   rows: [],
   selectedChartSymbol: "",
@@ -104,6 +118,13 @@ const state = {
   freshNewsTimer: null,
   dashboardLoading: false,
   heatScoreMap: loadHeatScoreState(),
+  heatMode: "default",
+  heatBoards: {
+    default: [],
+    combined: [],
+    contracts: [],
+    onchain: []
+  },
   moversMode: "gainers",
   moversGainers: [],
   moversLosers: [],
@@ -469,6 +490,129 @@ function getStableHeatScore(row) {
   return Math.round(Math.max(0, Math.min(100, previousScore + limitedDelta)));
 }
 
+function percentileScore(sortedValues, value) {
+  if (!sortedValues.length) {
+    return 0;
+  }
+
+  let low = 0;
+  let high = sortedValues.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (sortedValues[mid] <= value) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low / sortedValues.length;
+}
+
+function contractNegativeFundingBonus(fundingRate) {
+  const rate = Number(fundingRate || 0);
+  if (rate >= 0) {
+    return 0;
+  }
+
+  const fundingRatePct = Math.abs(rate) * 100;
+  const scaled = Math.min(fundingRatePct / NEGATIVE_FUNDING_FULL_BONUS_RATE_PCT, 1);
+  return scaled * MAX_NEGATIVE_FUNDING_BONUS;
+}
+
+function computeWeightedHeatScore(metrics) {
+  return Math.round(
+    Math.max(
+      0,
+      Math.min(
+        100,
+        100 *
+          (HEAT_WEIGHTS.trend * metrics.trendScore +
+            HEAT_WEIGHTS.volume * metrics.volumeScore +
+            HEAT_WEIGHTS.move * metrics.moveScore +
+            HEAT_WEIGHTS.listing * metrics.listingScore +
+            HEAT_WEIGHTS.socialHype * metrics.socialHypeScore +
+            HEAT_WEIGHTS.smartMoney * metrics.smartMoneyScore +
+            HEAT_WEIGHTS.meme * metrics.memeScore +
+            HEAT_WEIGHTS.x * metrics.xScore +
+            HEAT_WEIGHTS.square * metrics.squareScore)
+      )
+    )
+  );
+}
+
+function buildHeatBoards(rows) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const volumeValues = sourceRows.map((row) => Number(row.quoteVolume || 0)).sort((a, b) => a - b);
+  const moveValues = sourceRows.map((row) => Math.abs(Number(row.change24h || 0))).sort((a, b) => a - b);
+  const shortMoveValues = sourceRows.map((row) => Math.abs(Number(row.change15m || 0))).sort((a, b) => a - b);
+  const volumeMultipleValues = sourceRows.map((row) => Number(row.volumeMultiple || 0)).sort((a, b) => a - b);
+
+  const enrichedRows = sourceRows.map((row) => {
+    const volumeScore = percentileScore(volumeValues, Number(row.quoteVolume || 0));
+    const moveScore = percentileScore(moveValues, Math.abs(Number(row.change24h || 0)));
+    const shortMoveScore = percentileScore(shortMoveValues, Math.abs(Number(row.change15m || 0)));
+    const volumeMultipleScore = percentileScore(volumeMultipleValues, Number(row.volumeMultiple || 0));
+    const trendScore = Math.max(0, Math.min(1, (Number(row.change24h || 0) + 20) / 60));
+    const listingScore = Math.min(Number(row.listingMentions || 0) / 3, 1);
+    const socialHypeScore = Number(row.socialHype || 0) || shortMoveScore;
+    const smartMoneyScore = Number(row.smartMoney || 0) || volumeMultipleScore;
+    const memeScore = Number(row.memeRush || 0) || Math.max(0, Math.min(1, Math.abs(Number(row.change24h || 0)) / 80));
+    const xScore = Number(row.xScore || 0);
+    const squareScore = Number(row.squareScore || 0);
+    const combinedScore = computeWeightedHeatScore({
+      trendScore,
+      volumeScore,
+      moveScore,
+      listingScore,
+      socialHypeScore,
+      smartMoneyScore,
+      memeScore,
+      xScore,
+      squareScore
+    });
+    const contractScore = Math.round(Math.min(100, combinedScore + contractNegativeFundingBonus(row.fundingRate)));
+    const onchainScore = Math.round(
+      Math.max(
+        0,
+        Math.min(
+          100,
+          100 *
+            (0.2 * trendScore +
+              0.13 * volumeScore +
+              0.18 * moveScore +
+              0.18 * shortMoveScore +
+              0.16 * socialHypeScore +
+              0.1 * smartMoneyScore +
+              0.05 * memeScore)
+        )
+      )
+    );
+
+    return {
+      ...row,
+      combinedHeatScore: combinedScore,
+      contractHeatScore: contractScore,
+      onchainHeatScore: onchainScore
+    };
+  });
+
+  return {
+    default: [...enrichedRows].sort((a, b) => b.heatScore - a.heatScore || b.quoteVolume - a.quoteVolume).slice(0, 10),
+    combined: [...enrichedRows]
+      .map((row) => ({ ...row, heatScore: row.combinedHeatScore }))
+      .sort((a, b) => b.heatScore - a.heatScore || b.quoteVolume - a.quoteVolume)
+      .slice(0, 10),
+    contracts: [...enrichedRows]
+      .map((row) => ({ ...row, heatScore: row.contractHeatScore }))
+      .sort((a, b) => b.heatScore - a.heatScore || b.quoteVolume - a.quoteVolume)
+      .slice(0, 10),
+    onchain: [...enrichedRows]
+      .map((row) => ({ ...row, heatScore: row.onchainHeatScore }))
+      .sort((a, b) => b.heatScore - a.heatScore || b.quoteVolume - a.quoteVolume)
+      .slice(0, 10)
+  };
+}
+
 function isFreshNews(publishTime) {
   const timestamp = Number(publishTime || 0);
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -765,6 +909,26 @@ function renderTable(targetId, rows, type) {
     .join("");
 
   target.innerHTML = `<div class="table table-${type}">${getHeaderTemplate(type)}${content}</div>`;
+}
+
+function renderHeatRanking() {
+  const rows = state.heatBoards[state.heatMode] || state.heatBoards.default || [];
+  const titleMap = {
+    default: "币安合约综合热度榜前10",
+    combined: "综合热度榜前10",
+    contracts: "合约热度榜前10",
+    onchain: "链上热度榜前10"
+  };
+
+  if (heatTitle) {
+    heatTitle.textContent = titleMap[state.heatMode] || titleMap.default;
+  }
+
+  document.querySelectorAll("[data-heat-mode]").forEach((button) => {
+    button.classList.toggle("active", button.getAttribute("data-heat-mode") === state.heatMode);
+  });
+
+  renderTable("heatTable", rows, "heat");
 }
 
 function renderMoversRanking() {
@@ -1828,7 +1992,6 @@ async function loadDashboard() {
       }
     });
 
-    const heatTop = [...detailedRows].sort((a, b) => b.heatScore - a.heatScore).slice(0, 10);
     const volumeTop = [...detailedRows].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 10);
     const gainers = [...detailedRows].sort((a, b) => b.change24h - a.change24h).slice(0, 10);
     const losers = [...detailedRows].sort((a, b) => a.change24h - b.change24h).slice(0, 10);
@@ -1876,6 +2039,7 @@ async function loadDashboard() {
     state.activeVolumeSymbols = new Set(volumeAlerts.map((row) => row.symbol));
 
     state.rows = detailedRows;
+    state.heatBoards = buildHeatBoards(detailedRows);
     state.heatScoreMap = new Map(detailedRows.map((row) => [row.symbol, { score: row.heatScore, updatedAt: Date.now() }]));
     saveHeatScoreState(detailedRows);
     state.moversGainers = gainers;
@@ -1883,7 +2047,7 @@ async function loadDashboard() {
     state.positiveFunding = positiveFunding;
     state.negativeFunding = negativeFunding;
     renderVolumeTopStrip(volumeTop);
-    renderTable("heatTable", heatTop, "heat");
+    renderHeatRanking();
     renderMoversRanking();
     renderFundingRanking();
     renderShockList(shocks);
@@ -1961,6 +2125,16 @@ function startListingAutoRefresh() {
 
 refreshButton.addEventListener("click", loadDashboard);
 document.addEventListener("click", (event) => {
+  const heatTrigger = event.target.closest("[data-heat-mode]");
+  if (heatTrigger) {
+    const mode = heatTrigger.getAttribute("data-heat-mode");
+    if (["default", "combined", "contracts", "onchain"].includes(mode)) {
+      state.heatMode = mode;
+      renderHeatRanking();
+    }
+    return;
+  }
+
   const moversTrigger = event.target.closest("[data-movers-mode]");
   if (moversTrigger) {
     const mode = moversTrigger.getAttribute("data-movers-mode");

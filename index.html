@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260504-chart-poll-fallback-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260505-heat-modes-1" />
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
   <body>
@@ -23,6 +23,11 @@
             <h1>三木交易面板</h1>
           </div>
         </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="top-nav-link active" href="./index.html" aria-current="page">市场</a>
+          <a class="top-nav-link" href="./video.html">视频</a>
+          <a class="top-nav-link" href="./live.html">实盘</a>
+        </nav>
         <div class="toolbar-meta">
           <button class="theme-toggle-button" id="themeToggleButton" type="button" aria-label="切换主题" title="切换主题">☾</button>
           <button class="ghost-button" id="refreshButton">刷新数据</button>
@@ -39,7 +44,13 @@
       <main class="dashboard-grid">
         <section class="board-panel" id="heatPanel">
           <div class="panel-header">
-            <h2>币安合约综合热度榜前10</h2>
+            <h2 id="heatTitle">币安合约综合热度榜前10</h2>
+            <div class="movers-toggle heat-mode-toggle" aria-label="切换热度模式">
+              <button class="movers-toggle-button active" type="button" data-heat-mode="default">默认</button>
+              <button class="movers-toggle-button" type="button" data-heat-mode="combined">综合</button>
+              <button class="movers-toggle-button" type="button" data-heat-mode="contracts">合约</button>
+              <button class="movers-toggle-button" type="button" data-heat-mode="onchain">链上</button>
+            </div>
           </div>
           <div class="panel-body" id="heatTable"></div>
         </section>
@@ -149,7 +160,7 @@
       </section>
     </div>
 
-    <script src="./config.js?v=20260504-chart-poll-fallback-1"></script>
-    <script src="./script.js?v=20260504-chart-poll-fallback-1"></script>
+    <script src="./config.js?v=20260505-heat-modes-1"></script>
+    <script src="./script.js?v=20260505-heat-modes-1"></script>
   </body>
 </html>
