@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260505-social-trends-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260521-news-hub-1" />
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
   <body>
@@ -134,41 +134,25 @@
       </main>
 
       <section class="bottom-strip">
-        <section class="bottom-panel">
+        <section class="bottom-panel news-hub-panel">
           <div class="panel-header">
-            <h2>方程式新闻</h2>
-            <div class="panel-header-status" id="bweStatusBar"></div>
+            <h2>新闻聚合</h2>
+            <div class="news-hub-actions">
+              <div class="movers-toggle news-source-toggle" aria-label="切换新闻来源">
+                <button class="movers-toggle-button active" type="button" data-news-mode="all">全部</button>
+                <button class="movers-toggle-button" type="button" data-news-mode="bwe">方程式</button>
+                <button class="movers-toggle-button" type="button" data-news-mode="jin10">金十</button>
+                <button class="movers-toggle-button" type="button" data-news-mode="blockbeats">律动</button>
+              </div>
+              <div class="panel-header-status" id="newsHubStatusBar"></div>
+            </div>
           </div>
-          <div class="panel-body compact-feed" id="hotEventFeed"></div>
-        </section>
-
-        <section class="bottom-panel">
-          <div class="panel-header">
-            <h2>金十数据</h2>
-            <div class="panel-header-status" id="jin10StatusBar"></div>
-          </div>
-          <div class="panel-body compact-feed" id="listingFeed"></div>
-        </section>
-
-        <section class="bottom-panel">
-          <div class="panel-header">
-            <h2>律动快讯</h2>
-            <div class="panel-header-status" id="binanceNewsStatusBar"></div>
-          </div>
-          <div class="panel-body compact-feed" id="reserveFeed"></div>
-        </section>
-
-        <section class="bottom-panel">
-          <div class="panel-header">
-            <h2>社媒热度</h2>
-            <div class="panel-header-status" id="sectorStatusBar"></div>
-          </div>
-          <div class="panel-body compact-feed sector-feed" id="sectorFeed"></div>
+          <div class="panel-body compact-feed news-hub-feed" id="newsHubFeed"></div>
         </section>
       </section>
     </div>
 
-    <script src="./config.js?v=20260505-social-trends-1"></script>
-    <script src="./script.js?v=20260505-social-trends-1"></script>
+    <script src="./config.js?v=20260521-news-hub-1"></script>
+    <script src="./script.js?v=20260521-news-hub-1"></script>
   </body>
 </html>

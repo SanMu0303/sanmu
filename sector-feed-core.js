@@ -12,6 +12,10 @@ const BINANCE_UNIFIED_RANK_URL =
   "https://web3.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/market/token/pulse/unified/rank/list/ai";
 const BINANCE_TOPIC_RUSH_URL =
   "https://web3.binance.com/bapi/defi/v2/public/wallet-direct/buw/wallet/market/token/social-rush/rank/list/ai";
+const BINANCE_SMART_MONEY_URL =
+  "https://web3.binance.com/bapi/defi/v1/public/wallet-direct/tracker/wallet/token/inflow/rank/query/ai";
+const BINANCE_MEME_RUSH_URL =
+  "https://web3.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/market/token/pulse/rank/list/ai";
 const X_COUNTS_URL = "https://api.twitter.com/2/tweets/counts/recent";
 const SOCIAL_TIMEOUT_MS = 6500;
 const MAX_X_CANDIDATES = 18;
@@ -85,8 +89,14 @@ async function loadBinanceSquareSignals() {
     fetchSocialHypeRank("56"),
     fetchSocialHypeRank("CT_501"),
     fetchUnifiedRank({ rankType: 10, chainId: "56", period: 50, sortBy: 70, orderAsc: false, page: 1, size: 40 }),
+    fetchUnifiedRank({ rankType: 11, chainId: "56", period: 50, sortBy: 2, orderAsc: false, page: 1, size: 40 }),
     fetchUnifiedRank({ rankType: 10, chainId: "CT_501", period: 50, sortBy: 70, orderAsc: false, page: 1, size: 40 }),
-    fetchTopicRushRank({ pageIndex: 1, pageSize: 40, timeRange: "1D" })
+    fetchSmartMoneyRank("56"),
+    fetchSmartMoneyRank("CT_501"),
+    fetchMemeRushRank("56"),
+    fetchMemeRushRank("CT_501"),
+    fetchTopicRushRank("56"),
+    fetchTopicRushRank("CT_501")
   ]);
 
   return results
@@ -98,14 +108,14 @@ async function fetchSocialHypeRank(chainId) {
   const url = `${BINANCE_SOCIAL_HYPE_URL}?chainId=${encodeURIComponent(
     chainId
   )}&sentiment=All&socialLanguage=ALL&targetLanguage=en&timeRange=1`;
-  const payload = await fetchJsonWithTimeout(url, {
+  const payload = await fetchBinanceBapiJson(url, {
     headers: getBinanceHeaders()
   });
   const rows = payload?.data?.leaderBoardList || [];
   const total = Math.max(rows.length, 1);
   return rows.map((item, index) => ({
-    symbol: normalizeSymbol(item.symbol || item.tokenSymbol || item.baseAsset),
-    squareScore: (total - index) / total,
+    symbol: normalizeSymbol(item?.metaInfo?.symbol || item.symbol || item.tokenSymbol || item.baseAsset),
+    squareScore: Math.max((total - index) / total, normalizeLogValue(item?.socialHypeInfo?.socialHype)),
     squareRank: index + 1,
     tags: ["广场社媒"],
     sourceTag: "Square"
@@ -113,7 +123,7 @@ async function fetchSocialHypeRank(chainId) {
 }
 
 async function fetchUnifiedRank(body) {
-  const payload = await fetchJsonWithTimeout(BINANCE_UNIFIED_RANK_URL, {
+  const payload = await fetchBinanceBapiJson(BINANCE_UNIFIED_RANK_URL, {
     method: "POST",
     headers: getBinanceHeaders(),
     body: JSON.stringify(body)
@@ -131,22 +141,73 @@ async function fetchUnifiedRank(body) {
   }));
 }
 
-async function fetchTopicRushRank(body) {
-  const payload = await fetchJsonWithTimeout(BINANCE_TOPIC_RUSH_URL, {
+async function fetchSmartMoneyRank(chainId) {
+  const payload = await fetchBinanceBapiJson(BINANCE_SMART_MONEY_URL, {
     method: "POST",
     headers: getBinanceHeaders(),
-    body: JSON.stringify(body)
+    body: JSON.stringify({ chainId, period: "24h", tagType: 2 })
   });
-  const rows = payload?.data?.list || payload?.data?.tokens || payload?.data || [];
-  const list = Array.isArray(rows) ? rows : [];
+  const list = Array.isArray(payload?.data) ? payload.data : [];
   const total = Math.max(list.length, 1);
   return list.map((item, index) => ({
-    symbol: normalizeSymbol(item.symbol || item.tokenSymbol || item.baseAsset || item.coin),
-    squareScore: (total - index) / total,
+    symbol: normalizeSymbol(item.tokenName || item.symbol || item.tokenSymbol),
+    squareScore: Math.max((total - index) / total, normalizeLogValue(toNumber(item.inflow) + 500 * toNumber(item.traders))),
     squareRank: index + 1,
-    tags: ["叙事热度"],
+    tags: ["聪明钱"],
     sourceTag: "Square"
   }));
+}
+
+async function fetchMemeRushRank(chainId) {
+  const stageWeights = [
+    [10, 1],
+    [20, 0.95],
+    [30, 0.8]
+  ];
+  const results = await Promise.allSettled(
+    stageWeights.map(async ([rankType, weight]) => {
+      const payload = await fetchBinanceBapiJson(BINANCE_MEME_RUSH_URL, {
+        method: "POST",
+        headers: getBinanceHeaders(),
+        body: JSON.stringify({ chainId, rankType, limit: 30 })
+      });
+      const list = Array.isArray(payload?.data) ? payload.data : [];
+      const total = Math.max(list.length, 1);
+      return list.map((item, index) => ({
+        symbol: normalizeSymbol(item.symbol || item.tokenSymbol || item.baseAsset),
+        squareScore: weight * ((total - index) / total),
+        squareRank: index + 1,
+        priceChange24h: toNumber(item.priceChange),
+        volume24h: toNumber(item.volume || item.liquidity),
+        tags: ["Meme热榜"],
+        sourceTag: "Square"
+      }));
+    })
+  );
+
+  return results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+}
+
+async function fetchTopicRushRank(chainId) {
+  const url = `${BINANCE_TOPIC_RUSH_URL}?chainId=${encodeURIComponent(chainId)}&rankType=10&sort=10&asc=false`;
+  const payload = await fetchBinanceBapiJson(url, {
+    headers: getBinanceHeaders()
+  });
+  const topics = Array.isArray(payload?.data) ? payload.data : [];
+  const rows = [];
+  topics.forEach((topic, topicIndex) => {
+    const tokenList = Array.isArray(topic?.tokenList) ? topic.tokenList : [];
+    tokenList.forEach((token, tokenIndex) => {
+      rows.push({
+        symbol: normalizeSymbol(token.symbol || token.tokenSymbol || token.baseAsset),
+        squareScore: Math.max(0.05, 1 - (topicIndex + tokenIndex) / 60),
+        squareRank: topicIndex + tokenIndex + 1,
+        tags: ["叙事热度"],
+        sourceTag: "Square"
+      });
+    });
+  });
+  return rows;
 }
 
 async function loadMarketCandidates() {
@@ -355,6 +416,32 @@ async function fetchJsonWithTimeout(url, options = {}) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function fetchBinanceBapiJson(url, options = {}) {
+  const urls = [
+    url,
+    url.replace("https://web3.binance.com", "https://www.binance.com")
+  ];
+  let lastError;
+
+  for (const candidateUrl of [...new Set(urls)]) {
+    try {
+      return await fetchJsonWithTimeout(candidateUrl, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("binance bapi failed");
+}
+
+function normalizeLogValue(value) {
+  const number = toNumber(value);
+  if (number <= 0) {
+    return 0;
+  }
+  return Math.min(1, Math.log1p(number) / Math.log1p(1000000));
 }
 
 async function mapWithConcurrency(items, limit, worker) {

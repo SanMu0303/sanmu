@@ -10,7 +10,9 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260505-top-nav-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260518-live-account-1" />
+    <script src="./config.js?v=20260518-live-account-1" defer></script>
+    <script src="./live.js?v=20260518-live-account-1" defer></script>
   </head>
   <body class="theme-dark">
     <div class="page-shell">
@@ -29,11 +31,94 @@
         </nav>
       </header>
 
-      <main class="page-placeholder">
-        <section class="board-panel placeholder-panel">
-          <p class="eyebrow">LIVE TRADING</p>
-          <h2>实盘窗口</h2>
-          <p>这里先预留实盘页面，后续可以接入持仓记录、交易计划、盈亏曲线或实时信号面板。</p>
+      <main class="live-grid">
+        <section class="board-panel live-panel live-equity-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">ACCOUNT EQUITY</p>
+              <h2>资金曲线</h2>
+            </div>
+            <div class="live-panel-status" id="liveAccountStatus">
+              <span class="feed-health-dot"></span>
+              <span>等待 API</span>
+            </div>
+          </div>
+          <div class="panel-body live-equity-body" id="liveEquityCurve">
+            <div class="live-summary-grid">
+              <div class="live-metric-card">
+                <span>总权益</span>
+                <strong id="liveTotalEquity">-- USDT</strong>
+              </div>
+              <div class="live-metric-card">
+                <span>今日收益</span>
+                <strong id="liveTodayPnl">--</strong>
+              </div>
+              <div class="live-metric-card">
+                <span>最大回撤</span>
+                <strong id="liveMaxDrawdown">--</strong>
+              </div>
+              <div class="live-metric-card">
+                <span>胜率</span>
+                <strong id="liveWinRate">--</strong>
+              </div>
+            </div>
+            <div class="live-chart-placeholder">
+              <div class="live-chart-tabs" aria-label="资金曲线类型">
+                <button class="live-chart-tab active" type="button" data-live-chart-mode="equity">资金</button>
+                <button class="live-chart-tab" type="button" data-live-chart-mode="return">收益率</button>
+                <button class="live-chart-tab" type="button" data-live-chart-mode="profit">盈利</button>
+              </div>
+              <div class="live-chart-line"></div>
+              <div class="live-empty-state">
+                <strong id="liveChartTitle">资金曲线等待接入</strong>
+                <span id="liveChartSubtitle">后续 API 返回时间、权益、收益率后，将在这里绘制曲线。</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="board-panel live-panel live-history-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">TRADE HISTORY</p>
+              <h2>历史交易记录</h2>
+            </div>
+          </div>
+          <div class="panel-body live-table-wrap" id="liveTradeHistory">
+            <div class="live-table live-history-table">
+              <div class="live-table-row live-table-head">
+                <div>时间</div>
+                <div>标的</div>
+                <div>方向</div>
+                <div>开仓</div>
+                <div>平仓</div>
+                <div>收益</div>
+              </div>
+              <div class="live-empty-row">正在读取币安账户流水...</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="board-panel live-panel live-position-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">OPEN POSITIONS</p>
+              <h2>当前持仓</h2>
+            </div>
+          </div>
+          <div class="panel-body live-table-wrap" id="liveOpenPositions">
+            <div class="live-table live-position-table">
+              <div class="live-table-row live-table-head">
+                <div>标的</div>
+                <div>方向</div>
+                <div>杠杆</div>
+                <div>持仓</div>
+                <div>均价</div>
+                <div>浮盈亏</div>
+              </div>
+              <div class="live-empty-row">正在读取币安当前持仓...</div>
+            </div>
+          </div>
         </section>
       </main>
     </div>

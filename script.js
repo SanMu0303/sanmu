@@ -62,11 +62,13 @@ const hotEventFeed = document.getElementById("hotEventFeed");
 const listingFeed = document.getElementById("listingFeed");
 const reserveFeed = document.getElementById("reserveFeed");
 const sectorFeed = document.getElementById("sectorFeed");
+const newsHubFeed = document.getElementById("newsHubFeed");
 const macroCalendarFeed = document.getElementById("macroCalendarFeed");
 const bweStatusBar = document.getElementById("bweStatusBar");
 const jin10StatusBar = document.getElementById("jin10StatusBar");
 const binanceNewsStatusBar = document.getElementById("binanceNewsStatusBar");
 const sectorStatusBar = document.getElementById("sectorStatusBar");
+const newsHubStatusBar = document.getElementById("newsHubStatusBar");
 const macroCalendarStatusBar = document.getElementById("macroCalendarStatusBar");
 const SHOCK_HISTORY_KEY = "dashboard_shock_history_v1";
 const VOLUME_HISTORY_KEY = "dashboard_volume_history_v1";
@@ -106,6 +108,9 @@ const state = {
   chartLastMessageAt: 0,
   newsItems: [],
   newsStatus: "idle",
+  listingItems: [],
+  listingStatus: "idle",
+  listingUpdatedAt: "",
   reserveItems: [],
   reserveStatus: "idle",
   reserveUpdatedAt: "",
@@ -126,6 +131,7 @@ const state = {
   dashboardLoading: false,
   heatScoreMap: loadHeatScoreState(),
   heatMode: "default",
+  newsHubMode: "all",
   heatBoards: {
     default: [],
     combined: [],
@@ -1486,11 +1492,116 @@ function renderVolumeAlertList(rows) {
 }
 
 function renderBottomFeeds() {
-  renderHotEventFeed();
+  renderNewsHubFeed();
+}
+
+function getNewsSourceStatus(status) {
+  return status === "live" ? "正常" : status === "failed" ? "异常" : "加载中";
+}
+
+function getNewsStatusDotClass(status) {
+  return status === "live" ? "ok" : status === "failed" ? "failed" : "";
+}
+
+function normalizeNewsHubItems() {
+  const bweItems = state.newsItems.map((item) => ({
+    source: "方程式",
+    sourceKey: "bwe",
+    sourceTag: item.sourceLabel || "BWE",
+    title: item.primary || "未命名事件",
+    summary: [item.secondary, ...(Array.isArray(item.metaLines) ? item.metaLines : [])].filter(Boolean).join(" · "),
+    link: item.link || "#",
+    publishTime: Number(item.publishTime || 0)
+  }));
+  const jin10Items = state.listingItems.map((item) => ({
+    source: "金十",
+    sourceKey: "jin10",
+    sourceTag: "J10",
+    title: item.title || "未命名快讯",
+    summary: `[${item.exchange || "Jin10"}] ${Array.isArray(item.symbols) ? item.symbols.join(" ") : ""} ${item.summary || ""}`.trim(),
+    link: item.link || "#",
+    publishTime: Number(item.publishTime || 0)
+  }));
+  const blockbeatsItems = state.reserveItems.map((item) => ({
+    source: "律动",
+    sourceKey: "blockbeats",
+    sourceTag: item.sourceTag || "BB",
+    title: item.title || "未命名快讯",
+    summary: item.summary || "",
+    link: item.link || "#",
+    publishTime: Number(item.publishTime || 0)
+  }));
+
+  return [...bweItems, ...jin10Items, ...blockbeatsItems].sort((a, b) => b.publishTime - a.publishTime);
+}
+
+function updateNewsHubStatusBar() {
+  if (!newsHubStatusBar) {
+    return;
+  }
+
+  const sources = [
+    ["方程式", state.newsStatus],
+    ["金十", state.listingStatus],
+    ["律动", state.reserveStatus]
+  ];
+  newsHubStatusBar.innerHTML = sources
+    .map(
+      ([label, status]) => `
+        <span class="feed-health-inline news-source-health">
+          <span class="feed-health-dot ${getNewsStatusDotClass(status)}"></span>
+          <span class="feed-health-text">${label}</span>
+          <span class="feed-health-time">${getNewsSourceStatus(status)}</span>
+        </span>
+      `
+    )
+    .join("");
+}
+
+function renderNewsHubFeed() {
+  if (!newsHubFeed) {
+    return;
+  }
+
+  updateNewsHubStatusBar();
+
+  const mode = state.newsHubMode || "all";
+  const items = normalizeNewsHubItems().filter((item) => mode === "all" || item.sourceKey === mode);
+
+  if (!items.length) {
+    const loadingText = mode === "all" ? "正在读取新闻聚合。" : `正在读取${mode === "bwe" ? "方程式新闻" : mode === "jin10" ? "金十数据" : "律动快讯"}。`;
+    newsHubFeed.innerHTML = `
+      <div class="feed-item feed-item--compact">
+        <div class="feed-title">${loadingText}</div>
+        <div class="feed-meta">全部模式会混合展示方程式、金十、律动，并标注来源。</div>
+      </div>
+    `;
+    return;
+  }
+
+  newsHubFeed.innerHTML = items
+    .slice(0, mode === "all" ? 24 : 14)
+    .map(
+      (item) => `
+        <a class="feed-item feed-item--compact news-hub-item${getFreshNewsClass(item.publishTime)}" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noreferrer">
+          <div class="feed-title feed-line-clamp-2">
+            <span class="feed-source-tag news-source-label">${escapeHtml(item.source)}</span>
+            ${escapeHtml(item.title)}
+          </div>
+          ${item.summary ? `<div class="feed-meta feed-line-clamp-1">${escapeHtml(item.summary)}</div>` : ""}
+          <div class="feed-meta">
+            <span class="feed-source-tag">${escapeHtml(item.sourceTag)}</span>
+            <span>${formatShortDateTime(item.publishTime || 0)}</span>
+          </div>
+        </a>
+      `
+    )
+    .join("");
 }
 
 function renderReserveFeedLoading() {
   if (!reserveFeed) {
+    renderNewsHubFeed();
     return;
   }
 
@@ -1658,12 +1769,13 @@ function getLocalApiEndpoint(path) {
 }
 
 async function loadHotEventFeed() {
-  if (!hotEventFeed) {
+  if (!hotEventFeed && !newsHubFeed) {
     return;
   }
 
   state.newsStatus = "connecting";
   renderHotEventFeed();
+  renderNewsHubFeed();
 
   try {
     const endpoint = getLocalApiEndpoint("/api/bwe-rss-feed");
@@ -1676,10 +1788,12 @@ async function loadHotEventFeed() {
     state.newsItems = Array.isArray(payload.items) ? payload.items : [];
     state.newsStatus = "live";
     renderHotEventFeed();
+    renderNewsHubFeed();
   } catch (error) {
     console.error("load BWE RSS failed", error);
     state.newsStatus = "failed";
     renderHotEventFeed();
+    renderNewsHubFeed();
   }
 }
 
@@ -1756,7 +1870,7 @@ function startFreshNewsTimer() {
 }
 
 async function loadReserveFeed() {
-  if (!reserveFeed) {
+  if (!reserveFeed && !newsHubFeed) {
     return;
   }
 
@@ -1765,6 +1879,7 @@ async function loadReserveFeed() {
   }
   renderReserveFeedLoading();
   updateReserveStatusBar();
+  renderNewsHubFeed();
 
   try {
     const endpoint = getLocalApiEndpoint("/api/blockbeats-feed");
@@ -1783,18 +1898,22 @@ async function loadReserveFeed() {
     }
     updateReserveStatusBar();
     renderReserveFeed();
+    renderNewsHubFeed();
   } catch (error) {
     console.error("load binance news failed", error);
     state.reserveStatus = "failed";
     updateReserveStatusBar();
     if (!state.reserveItems.length) {
-      reserveFeed.innerHTML = `
+      if (reserveFeed) {
+        reserveFeed.innerHTML = `
         <div class="feed-item feed-item--compact">
         <div class="feed-title">暂时无法读取律动快讯。</div>
           <div class="feed-meta">请检查本地 8787 接口或线上 /api/blockbeats-feed 是否可访问。</div>
         </div>
       `;
+      }
     }
+    renderNewsHubFeed();
   }
 }
 
@@ -1935,9 +2054,12 @@ function startMacroCalendarAutoRefresh() {
 }
 
 async function loadListingFeed() {
-  if (!listingFeed) {
+  if (!listingFeed && !newsHubFeed) {
     return;
   }
+
+  state.listingStatus = "connecting";
+  renderNewsHubFeed();
 
   try {
     const endpoint = getLocalApiEndpoint("/api/new-listings-feed");
@@ -1951,6 +2073,9 @@ async function loadListingFeed() {
     const sourceStatus = payload?.sourceStatus || {};
     const jin10Status = String(sourceStatus.Jin10 || "failed").toLowerCase();
     const updatedAt = formatTime(new Date());
+    state.listingStatus = jin10Status === "ok" ? "live" : "failed";
+    state.listingUpdatedAt = updatedAt;
+    state.listingItems = items;
     if (jin10StatusBar) {
       jin10StatusBar.innerHTML = `
         <span class="feed-health-inline">
@@ -1962,26 +2087,33 @@ async function loadListingFeed() {
     }
 
     if (!items.length) {
-      listingFeed.innerHTML = `
+      if (listingFeed) {
+        listingFeed.innerHTML = `
         <div class="feed-item feed-item--compact">
           <div class="feed-title">暂未获取到推送内容。</div>
           <div class="feed-meta">当前来源：Jin10 快讯</div>
         </div>
       `;
+      }
+      renderNewsHubFeed();
       return;
     }
 
-    listingFeed.innerHTML = items
-      .map(
-        (item) => `
+    if (listingFeed) {
+      listingFeed.innerHTML = items
+        .map(
+          (item) => `
           <a class="feed-item feed-item--compact${getFreshNewsClass(item.publishTime)}" href="${item.link}" target="_blank" rel="noreferrer">
             <div class="feed-title feed-line-clamp-2">${item.title}</div>
             <div class="feed-meta feed-line-clamp-1">[${item.exchange}] ${item.symbols.join(" ")} ${item.summary || ""}</div>
           </a>
         `
-      )
-      .join("");
+        )
+        .join("");
+    }
+    renderNewsHubFeed();
   } catch (error) {
+    state.listingStatus = "failed";
     if (jin10StatusBar) {
       jin10StatusBar.innerHTML = `
         <span class="feed-health-inline">
@@ -1991,12 +2123,15 @@ async function loadListingFeed() {
         </span>
       `;
     }
-    listingFeed.innerHTML = `
+    if (listingFeed) {
+      listingFeed.innerHTML = `
       <div class="feed-item feed-item--compact">
         <div class="feed-title">暂时无法读取推送内容。</div>
         <div class="feed-meta">请确认本地 8787 接口、Jin10 配置或线上 API 是否已启动</div>
       </div>
     `;
+    }
+    renderNewsHubFeed();
   }
 }
 
@@ -2265,6 +2400,19 @@ document.addEventListener("click", (event) => {
     if (mode === "positive" || mode === "negative") {
       state.fundingMode = mode;
       renderFundingRanking();
+    }
+    return;
+  }
+
+  const newsTrigger = event.target.closest("[data-news-mode]");
+  if (newsTrigger) {
+    const mode = newsTrigger.getAttribute("data-news-mode");
+    if (["all", "bwe", "jin10", "blockbeats"].includes(mode)) {
+      state.newsHubMode = mode;
+      document.querySelectorAll("[data-news-mode]").forEach((button) => {
+        button.classList.toggle("active", button === newsTrigger);
+      });
+      renderNewsHubFeed();
     }
     return;
   }

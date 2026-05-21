@@ -5,6 +5,9 @@
   "functions": {
     "api/binance-proxy.js": {
       "regions": ["hkg1"]
+    },
+    "api/binance-account.js": {
+      "regions": ["hkg1"]
     }
   },
   "headers": [

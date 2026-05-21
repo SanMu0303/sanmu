@@ -6,6 +6,7 @@ const { loadBweRssPayload } = require("./bwe-rss-core");
 const { loadBinanceNewsPayload } = require("./binance-news-core");
 const { loadBlockBeatsPayload } = require("./blockbeats-core");
 const { loadBinanceProxyPayload } = require("./binance-proxy-core");
+const { loadBinanceAccountPayload } = require("./binance-account-core");
 const { loadSectorFeedPayload } = require("./sector-feed-core");
 
 const PORT = 8787;
@@ -35,6 +36,25 @@ const server = http.createServer(async (req, res) => {
       res.end(
         JSON.stringify({
           error: "failed to load binance data",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/binance-account") {
+    try {
+      const payload = await loadBinanceAccountPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 502;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load binance account data",
           detail: error instanceof Error ? error.message : String(error)
         })
       );
