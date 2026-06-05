@@ -45,13 +45,17 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/binance-account") {
     try {
-      const payload = await loadBinanceAccountPayload();
+      const payload = await loadBinanceAccountPayload({
+        previewFallback: url.searchParams.get("preview") === "1"
+      });
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
       res.end(JSON.stringify(payload));
     } catch (error) {
       res.statusCode = 502;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
       res.end(
         JSON.stringify({
           error: "failed to load binance account data",

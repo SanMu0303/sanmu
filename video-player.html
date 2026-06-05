@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三木交易面板 - 视频播放</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css?v=20260605-video-public-1" />
+    <script src="./video-player.js?v=20260605-video-public-1" defer></script>
+  </head>
+  <body class="theme-dark video-player-body">
+    <main class="video-player-shell">
+      <section class="board-panel video-player-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">NOW PLAYING</p>
+            <h2 id="playerTitle">视频播放</h2>
+          </div>
+        </div>
+        <div class="video-embed-frame" id="videoEmbedFrame"></div>
+        <div class="video-player-error" id="videoPlayerError" hidden>视频链接无效。</div>
+      </section>
+    </main>
+  </body>
+</html>

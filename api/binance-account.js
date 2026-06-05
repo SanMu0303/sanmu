@@ -9,7 +9,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const payload = await loadBinanceAccountPayload();
+    const url = new URL(req.url || "/", "http://127.0.0.1");
+    const payload = await loadBinanceAccountPayload({
+      previewFallback: url.searchParams.get("preview") === "1"
+    });
 
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");

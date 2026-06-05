@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>三木交易面板 - 视频</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <title>三木交易面板 - 视频管理</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,21 +14,18 @@
     <link rel="stylesheet" href="./styles.css?v=20260605-video-public-1" />
     <script src="./video.js?v=20260605-video-public-1" defer></script>
   </head>
-  <body class="theme-dark">
+  <body class="theme-dark" data-video-admin="true">
     <div class="page-shell">
       <header class="topbar">
         <div class="brand">
           <div class="brand-mark">A</div>
           <div>
             <p class="eyebrow">SANMU TRADING</p>
-            <h1>三木交易面板</h1>
+            <h1>视频管理</h1>
           </div>
         </div>
         <nav class="top-nav" aria-label="主导航">
-          <a class="top-nav-link" href="./index.html">市场</a>
-          <a class="top-nav-link active" href="./video.html" aria-current="page">视频</a>
-          <a class="top-nav-link" href="./live.html">实盘</a>
-          <a class="top-nav-link" href="./community.html">社群</a>
+          <a class="top-nav-link" href="./video.html">公开视频页</a>
         </nav>
       </header>
 
@@ -35,11 +33,23 @@
         <section class="board-panel video-library-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">VIDEO LIBRARY</p>
-              <h2>视频列表</h2>
+              <p class="eyebrow">PRIVATE ADMIN</p>
+              <h2>YouTube 视频接入</h2>
             </div>
             <span class="video-count" id="videoCount">0 个视频</span>
           </div>
+          <div class="video-add-panel">
+            <label class="video-field">
+              <span>YouTube 链接</span>
+              <input id="youtubeUrlInput" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" />
+            </label>
+            <label class="video-field">
+              <span>标题</span>
+              <input id="videoTitleInput" type="text" placeholder="自动读取或自定义标题" autocomplete="off" />
+            </label>
+            <button class="video-add-button" id="addVideoButton" type="button">添加视频</button>
+          </div>
+          <div class="video-form-status" id="videoFormStatus" aria-live="polite"></div>
           <div class="video-list" id="videoList"></div>
         </section>
 
@@ -50,7 +60,7 @@
               <h2>当前选择</h2>
             </div>
           </div>
-          <div class="video-preview-empty" id="videoPreviewEmpty">点击列表中的视频后，将打开独立播放窗口。</div>
+          <div class="video-preview-empty" id="videoPreviewEmpty">添加或点击视频后，可打开独立播放窗口预览。</div>
           <div class="video-preview-card" id="videoPreviewCard" hidden>
             <img id="videoPreviewThumb" alt="" />
             <div>

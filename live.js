@@ -3,6 +3,9 @@
 
   const LOCAL_API_ORIGIN = "http://127.0.0.1:8787";
   const REFRESH_MS = 30000;
+  const REQUEST_TIMEOUT_MS = 12000;
+  let inFlightLoad = null;
+  let lastAccountPayload = null;
 
   const els = {
     status: document.getElementById("liveAccountStatus"),
@@ -27,7 +30,7 @@
     const configuredOrigin = window.DASHBOARD_CONFIG?.apiOrigin || "";
 
     if (window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname)) {
-      return [LOCAL_API_ORIGIN, configuredOrigin].filter(Boolean);
+      return [LOCAL_API_ORIGIN].filter(Boolean);
     }
 
     return [window.location.origin, configuredOrigin].filter(Boolean);
@@ -182,15 +185,36 @@
   }
 
   async function fetchAccountFromOrigin(origin) {
-    const response = await fetch(`${origin}/api/binance-account`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store"
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload?.detail || payload?.error || `${origin} HTTP ${response.status}`);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${origin}/api/binance-account`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+        cache: "no-store"
+      });
+      const text = await response.text();
+      let payload = null;
+
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch (error) {
+        throw new Error(`${origin} 返回了非 JSON 响应`);
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.detail || payload?.error || `${origin} HTTP ${response.status}`);
+      }
+      return payload;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(`${origin} request timeout`);
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
     }
-    return payload;
   }
 
   async function fetchAccountWithFallback() {
@@ -213,6 +237,7 @@
 
   function renderAccount(payload) {
     const summary = payload?.summary || {};
+    lastAccountPayload = payload;
     setText(els.totalEquity, summary.totalEquity);
     setText(els.todayPnl, summary.todayPnl);
     setText(els.maxDrawdown, summary.maxDrawdown);
@@ -223,22 +248,45 @@
 
     renderHistory(payload?.history || []);
     renderPositions(payload?.positions || []);
-    setStatus("ok", `正常 ${formatTime(payload?.updatedAt)} 更新`);
+    if (payload?.preview) {
+      setText(els.chartTitle, "本地预览数据");
+      setText(els.chartSubtitle, "当前网络无法连接 Binance Futures，已显示本地预览数据；网络恢复后会自动切回真实账户。");
+    }
+
+    const statusPrefix = payload?.preview ? "预览" : payload?.stale ? "缓存" : payload?.cached ? "快速" : "正常";
+    setStatus(payload?.stale ? "failed" : "ok", `${statusPrefix} ${formatTime(payload?.updatedAt)} 更新`);
   }
 
   async function loadAccount() {
-    setStatus("pending", "读取中...");
+    if (inFlightLoad) return inFlightLoad;
+
+    setStatus("pending", lastAccountPayload ? "刷新中..." : "读取中...");
+    inFlightLoad = (async () => {
+      try {
+        const payload = await fetchAccountWithFallback();
+        renderAccount(payload);
+      } catch (error) {
+        const readableError = getReadableError(error);
+        setStatus("failed", lastAccountPayload ? "刷新失败" : "接口异常");
+        if (lastAccountPayload) {
+          setText(els.chartSubtitle, `${readableError}；已保留上次成功数据。`);
+          console.warn("Binance account refresh failed; keeping last payload:", error);
+          return;
+        }
+        setText(els.chartTitle, "实盘接口未连接");
+        setText(els.chartSubtitle, readableError);
+        renderHistoryMessage(readableError);
+        renderPositionsMessage(readableError);
+        console.warn("Binance account load failed:", error);
+      } finally {
+        inFlightLoad = null;
+      }
+    })();
+
     try {
-      const payload = await fetchAccountWithFallback();
-      renderAccount(payload);
-    } catch (error) {
-      const readableError = getReadableError(error);
-      setStatus("failed", "接口异常");
-      setText(els.chartTitle, "实盘接口未连接");
-      setText(els.chartSubtitle, readableError);
-      renderHistoryMessage(readableError);
-      renderPositionsMessage(readableError);
-      console.warn("Binance account load failed:", error);
+      await inFlightLoad;
+    } finally {
+      inFlightLoad = null;
     }
   }
 
