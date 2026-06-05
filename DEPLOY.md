@@ -109,16 +109,21 @@
 
 部署到 Vercel 后，推荐把视频列表写回 GitHub 仓库文件。需要在 Vercel 项目的 Environment Variables 里设置：
 
-- `VIDEO_ADMIN_TOKEN`：你自己管理视频用的口令
 - `GITHUB_TOKEN`：GitHub fine-grained token，需要有当前仓库 Contents 读写权限
 - `GITHUB_REPO`：仓库名，格式如 `你的用户名/你的仓库名`
 - `GITHUB_BRANCH`：分支名，通常是 `main`
 - `VIDEOS_FILE_PATH`：视频列表文件路径，默认 `videos.json`
 
+`GITHUB_TOKEN` 建议使用 GitHub Fine-grained personal access token：
+
+- Repository access：只选择这个项目仓库
+- Permissions：`Contents` 选择 `Read and write`
+- 生成后复制 token，填到 Vercel 的 `GITHUB_TOKEN`
+
 使用方式：
 
 - 用户打开 `video.html`，只能看公开视频列表和播放窗口
-- 你打开 `video-admin.html`，输入 `VIDEO_ADMIN_TOKEN`，再添加 YouTube 链接
+- 你打开 `video-admin.html`，直接添加 YouTube 链接
 - 添加后会写入 `videos.json`，所有用户刷新 `video.html` 都能看到
 
 ## 如果你完全照着做

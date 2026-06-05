@@ -1,6 +1,6 @@
 "use strict";
 
-const { addVideo, assertAdminToken, deleteVideo, listVideos } = require("../videos-core");
+const { addVideo, deleteVideo, listVideos } = require("../videos-core");
 const { applyCors } = require("./cors");
 
 async function readJsonBody(req) {
@@ -21,10 +21,8 @@ module.exports = async function handler(req, res) {
     if (req.method === "GET") {
       payload = await listVideos();
     } else if (req.method === "POST") {
-      assertAdminToken(req);
       payload = await addVideo(await readJsonBody(req));
     } else if (req.method === "DELETE") {
-      assertAdminToken(req);
       const url = new URL(req.url || "/", "http://127.0.0.1");
       payload = await deleteVideo(url.searchParams.get("id") || "");
     } else {

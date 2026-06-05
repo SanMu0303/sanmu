@@ -10,6 +10,18 @@ const LOCAL_ENV_FILES = [
 ];
 const DEFAULT_FILE_PATH = "videos.json";
 
+function isReadonlyServerlessRuntime() {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || __dirname.startsWith("/var/task"));
+}
+
+function createPersistenceConfigError() {
+  const error = new Error(
+    "线上环境不能直接写入 videos.json。请在 Vercel 环境变量中配置 GITHUB_TOKEN、GITHUB_REPO、GITHUB_BRANCH 后重新部署。"
+  );
+  error.statusCode = 500;
+  return error;
+}
+
 function loadLocalEnv() {
   for (const file of LOCAL_ENV_FILES) {
     if (!fs.existsSync(file)) continue;
@@ -155,6 +167,10 @@ async function writeVideoStore(store) {
   if (hasGithubStore()) {
     const current = await fetchGithubFile();
     return saveGithubFile(normalized, current.sha);
+  }
+
+  if (isReadonlyServerlessRuntime()) {
+    throw createPersistenceConfigError();
   }
 
   fs.writeFileSync(LOCAL_VIDEOS_FILE, `${JSON.stringify(normalized, null, 2)}\n`);

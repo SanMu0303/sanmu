@@ -5,7 +5,6 @@
   const DEFAULT_VIDEOS = [];
 
   const els = {
-    adminTokenInput: document.getElementById("videoAdminTokenInput"),
     urlInput: document.getElementById("youtubeUrlInput"),
     titleInput: document.getElementById("videoTitleInput"),
     addButton: document.getElementById("addVideoButton"),
@@ -55,28 +54,11 @@
     return id ? `${url}?id=${encodeURIComponent(id)}` : url;
   }
 
-  function getAdminToken() {
-    return els.adminTokenInput?.value.trim() || window.localStorage.getItem("sanmu.video.adminToken") || "";
-  }
-
-  function saveAdminToken() {
-    const token = els.adminTokenInput?.value.trim();
-    if (token) window.localStorage.setItem("sanmu.video.adminToken", token);
-  }
-
   async function requestVideoStore(path = "", options = {}) {
     const headers = {
       Accept: "application/json",
       ...(options.headers || {})
     };
-
-    if (options.admin) {
-      const token = getAdminToken();
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-        headers["X-Admin-Token"] = token;
-      }
-    }
 
     const response = await fetch(path || getVideosEndpoint(), {
       cache: "no-store",
@@ -202,7 +184,6 @@
     };
 
     try {
-      saveAdminToken();
       setStatus("正在保存到长期列表...");
       const payload = await requestVideoStore(getVideosEndpoint(), {
         method: "POST",
@@ -224,7 +205,6 @@
 
   async function removeVideo(id) {
     try {
-      saveAdminToken();
       setStatus("正在删除...");
       const payload = await requestVideoStore(getVideosEndpoint(id), {
         method: "DELETE",
@@ -316,9 +296,6 @@
   }
 
   els.addButton?.addEventListener("click", addVideo);
-  if (els.adminTokenInput) {
-    els.adminTokenInput.value = window.localStorage.getItem("sanmu.video.adminToken") || "";
-  }
   els.urlInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") addVideo();
   });

@@ -237,6 +237,10 @@ button {
   background: var(--panel-soft);
 }
 
+.video-add-panel-public {
+  grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.55fr) auto;
+}
+
 .video-field {
   display: grid;
   gap: 6px;

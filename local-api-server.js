@@ -8,7 +8,7 @@ const { loadBlockBeatsPayload } = require("./blockbeats-core");
 const { loadBinanceProxyPayload } = require("./binance-proxy-core");
 const { loadBinanceAccountPayload } = require("./binance-account-core");
 const { loadSectorFeedPayload } = require("./sector-feed-core");
-const { addVideo, assertAdminToken, deleteVideo, listVideos } = require("./videos-core");
+const { addVideo, deleteVideo, listVideos } = require("./videos-core");
 
 const PORT = 8787;
 
@@ -38,10 +38,8 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET") {
         payload = await listVideos();
       } else if (req.method === "POST") {
-        assertAdminToken(req);
         payload = await addVideo(await readJsonBody());
       } else if (req.method === "DELETE") {
-        assertAdminToken(req);
         payload = await deleteVideo(url.searchParams.get("id") || "");
       } else {
         res.statusCode = 405;
