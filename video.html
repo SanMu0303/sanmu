@@ -10,10 +10,11 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260605-video-public-1" />
-    <script src="./video.js?v=20260605-video-public-1" defer></script>
+    <script src="./config.js?v=20260605-video-three-panel-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260605-video-three-panel-1" />
+    <script src="./video.js?v=20260605-video-three-panel-1" defer></script>
   </head>
-  <body class="theme-dark">
+  <body class="theme-dark video-public-body">
     <div class="page-shell">
       <header class="topbar">
         <div class="brand">
@@ -31,34 +32,36 @@
         </nav>
       </header>
 
-      <main class="video-page">
-        <section class="board-panel video-library-panel">
-          <div class="panel-header">
+      <main class="video-page video-course-layout">
+        <section class="board-panel video-main-panel">
+          <div class="video-main-header">
             <div>
-              <p class="eyebrow">VIDEO LIBRARY</p>
-              <h2>视频列表</h2>
+              <p class="eyebrow">VIDEO DISTRIBUTION</p>
+              <h2>视频分布</h2>
+              <span>所有长期留存的视频会在这里按最新顺序展示。</span>
             </div>
-            <span class="video-count" id="videoCount">0 个视频</span>
+            <strong class="video-count" id="videoCount">0 个视频</strong>
           </div>
           <div class="video-list" id="videoList"></div>
         </section>
 
-        <aside class="board-panel video-preview-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">SELECTED</p>
-              <h2>当前选择</h2>
+        <aside class="video-side-rail">
+          <section class="board-panel video-type-panel">
+            <h2>视频类型分类</h2>
+            <div class="video-type-list" id="videoTypeList">
+              <button class="active" type="button">全部视频</button>
+              <button type="button">视频课程</button>
+              <button type="button">技术指标</button>
+              <button type="button">形态分析</button>
+              <button type="button">交易策略</button>
+              <button type="button">技术模型</button>
             </div>
-          </div>
-          <div class="video-preview-empty" id="videoPreviewEmpty">点击列表中的视频后，将打开独立播放窗口。</div>
-          <div class="video-preview-card" id="videoPreviewCard" hidden>
-            <img id="videoPreviewThumb" alt="" />
-            <div>
-              <h3 id="videoPreviewTitle"></h3>
-              <p id="videoPreviewMeta"></p>
-            </div>
-            <button class="video-open-button" id="openSelectedVideoButton" type="button">打开播放</button>
-          </div>
+          </section>
+
+          <section class="board-panel video-updates-panel">
+            <h2>最近更新</h2>
+            <div id="videoRecentList" class="video-recent-list"></div>
+          </section>
         </aside>
       </main>
     </div>

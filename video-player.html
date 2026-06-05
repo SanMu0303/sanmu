@@ -10,20 +10,30 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260605-video-public-1" />
-    <script src="./video-player.js?v=20260605-video-public-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260605-video-course-1" />
+    <script src="./video-player.js?v=20260605-video-course-1" defer></script>
   </head>
-  <body class="theme-dark video-player-body">
+  <body class="theme-dark video-player-body video-public-body">
     <main class="video-player-shell">
+      <a class="video-back-link" href="./video.html">← 返回课程列表</a>
       <section class="board-panel video-player-panel">
-        <div class="panel-header">
+        <div class="video-player-header">
+          <img id="playerAvatar" src="./assets/wechat-qr.jpg" alt="" />
           <div>
-            <p class="eyebrow">NOW PLAYING</p>
-            <h2 id="playerTitle">视频播放</h2>
+            <h1 id="playerTitle">视频播放</h1>
+            <p>华尔街没有名字</p>
           </div>
         </div>
         <div class="video-embed-frame" id="videoEmbedFrame"></div>
         <div class="video-player-error" id="videoPlayerError" hidden>视频链接无效。</div>
+      </section>
+      <div class="video-player-progress">
+        <div></div>
+        <span>已观看 0% · 需达到 60%</span>
+      </div>
+      <section class="board-panel video-player-info">
+        <h2 id="playerInfoTitle">视频课程</h2>
+        <p id="playerInfoMeta">YouTube 课程</p>
       </section>
     </main>
   </body>

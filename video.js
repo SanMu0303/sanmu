@@ -5,6 +5,7 @@
   const DEFAULT_VIDEOS = [];
 
   const els = {
+    adminTokenInput: document.getElementById("videoAdminTokenInput"),
     urlInput: document.getElementById("youtubeUrlInput"),
     titleInput: document.getElementById("videoTitleInput"),
     addButton: document.getElementById("addVideoButton"),
@@ -16,14 +17,16 @@
     previewThumb: document.getElementById("videoPreviewThumb"),
     previewTitle: document.getElementById("videoPreviewTitle"),
     previewMeta: document.getElementById("videoPreviewMeta"),
-    openSelectedButton: document.getElementById("openSelectedVideoButton")
+    openSelectedButton: document.getElementById("openSelectedVideoButton"),
+    recentList: document.getElementById("videoRecentList"),
+    typeList: document.getElementById("videoTypeList")
   };
 
   const isAdmin = document.body?.dataset.videoAdmin === "true";
-  let videos = loadVideos();
-  let selectedId = videos[0]?.id || "";
+  let videos = [];
+  let selectedId = "";
 
-  function loadVideos() {
+  function loadCachedVideos() {
     try {
       const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "[]");
       if (Array.isArray(parsed)) return parsed;
@@ -33,8 +36,74 @@
     return DEFAULT_VIDEOS;
   }
 
-  function saveVideos() {
+  function saveCachedVideos() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
+  }
+
+  function getApiOrigin() {
+    const configuredOrigin = window.DASHBOARD_CONFIG?.apiOrigin || "";
+
+    if (window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+      return "http://127.0.0.1:8787";
+    }
+
+    return configuredOrigin || window.location.origin;
+  }
+
+  function getVideosEndpoint(id = "") {
+    const url = `${getApiOrigin()}/api/videos`;
+    return id ? `${url}?id=${encodeURIComponent(id)}` : url;
+  }
+
+  function getAdminToken() {
+    return els.adminTokenInput?.value.trim() || window.localStorage.getItem("sanmu.video.adminToken") || "";
+  }
+
+  function saveAdminToken() {
+    const token = els.adminTokenInput?.value.trim();
+    if (token) window.localStorage.setItem("sanmu.video.adminToken", token);
+  }
+
+  async function requestVideoStore(path = "", options = {}) {
+    const headers = {
+      Accept: "application/json",
+      ...(options.headers || {})
+    };
+
+    if (options.admin) {
+      const token = getAdminToken();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+        headers["X-Admin-Token"] = token;
+      }
+    }
+
+    const response = await fetch(path || getVideosEndpoint(), {
+      cache: "no-store",
+      ...options,
+      headers
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.detail || payload?.error || `video api HTTP ${response.status}`);
+    }
+    return payload;
+  }
+
+  async function loadVideos() {
+    try {
+      const payload = await requestVideoStore();
+      videos = Array.isArray(payload.items) ? payload.items : [];
+      selectedId = videos[0]?.id || "";
+      saveCachedVideos();
+      setStatus(isAdmin ? "已读取长期保存的视频列表。" : "");
+    } catch (error) {
+      videos = loadCachedVideos();
+      selectedId = videos[0]?.id || "";
+      setStatus("视频 API 暂不可用，正在显示本机缓存。", true);
+      console.warn("failed to load persistent videos", error);
+    }
+    render();
   }
 
   function getYoutubeId(value) {
@@ -82,6 +151,10 @@
     return `${month}/${day} ${hours}:${minutes}`;
   }
 
+  function getIssueLabel(index) {
+    return `第${Math.max(1, videos.length - index)}期`;
+  }
+
   function setStatus(message, failed = false) {
     if (!els.formStatus) return;
     els.formStatus.textContent = message || "";
@@ -99,12 +172,13 @@
     render();
     const params = new URLSearchParams({
       id: video.id,
-      title: video.title || "YouTube 视频"
+      title: video.title || "YouTube 视频",
+      date: formatDate(video.createdAt)
     });
     window.open(`./video-player.html?${params.toString()}`, "_blank", "noopener,noreferrer,width=1120,height=720");
   }
 
-  function addVideo() {
+  async function addVideo() {
     const id = getYoutubeId(els.urlInput?.value);
     if (!id) {
       setStatus("请输入有效的 YouTube 链接。", true);
@@ -126,39 +200,66 @@
       url: getVideoUrl(id),
       createdAt: Date.now()
     };
-    videos = [video, ...videos];
-    selectedId = id;
-    saveVideos();
-    if (els.urlInput) els.urlInput.value = "";
-    if (els.titleInput) els.titleInput.value = "";
-    setStatus("已添加视频。");
-    render();
+
+    try {
+      saveAdminToken();
+      setStatus("正在保存到长期列表...");
+      const payload = await requestVideoStore(getVideosEndpoint(), {
+        method: "POST",
+        admin: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(video)
+      });
+      videos = Array.isArray(payload.items) ? payload.items : [video, ...videos];
+      selectedId = id;
+      saveCachedVideos();
+      if (els.urlInput) els.urlInput.value = "";
+      if (els.titleInput) els.titleInput.value = "";
+      setStatus("已保存到长期视频列表。");
+      render();
+    } catch (error) {
+      setStatus(`保存失败：${error.message}`, true);
+    }
   }
 
-  function removeVideo(id) {
-    videos = videos.filter((video) => video.id !== id);
-    if (selectedId === id) selectedId = videos[0]?.id || "";
-    saveVideos();
-    setStatus("已移除视频。");
-    render();
+  async function removeVideo(id) {
+    try {
+      saveAdminToken();
+      setStatus("正在删除...");
+      const payload = await requestVideoStore(getVideosEndpoint(id), {
+        method: "DELETE",
+        admin: true
+      });
+      videos = Array.isArray(payload.items) ? payload.items : videos.filter((video) => video.id !== id);
+      if (selectedId === id) selectedId = videos[0]?.id || "";
+      saveCachedVideos();
+      setStatus("已从长期视频列表删除。");
+      render();
+    } catch (error) {
+      setStatus(`删除失败：${error.message}`, true);
+    }
   }
 
   function renderList() {
     if (!els.list) return;
 
     if (!videos.length) {
-      els.list.innerHTML = `<div class="video-empty-state">暂无视频。</div>`;
+      els.list.innerHTML = `<div class="video-empty-state">暂无视频。请在视频管理页添加 YouTube 链接。</div>`;
       return;
     }
 
     els.list.innerHTML = videos
-      .map((video) => `
+      .map((video, index) => `
         <article class="video-list-item${video.id === selectedId ? " active" : ""}" data-video-id="${video.id}">
           <button class="video-list-main" type="button" data-video-action="open" data-video-id="${video.id}">
-            <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
+            <span class="video-card-art" style="--thumb: url('${getThumbUrl(video.id)}')">
+              <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
+              <em>${isAdmin ? "视频" : index === 0 ? "会员专属" : "登录可看"}</em>
+              <b>20:00</b>
+            </span>
             <span>
               <strong>${escapeHtml(video.title)}</strong>
-              <small>${formatDate(video.createdAt)} · ${video.id}</small>
+              <small>26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
             </span>
           </button>
           ${isAdmin ? `
@@ -192,9 +293,32 @@
   function render() {
     renderList();
     renderPreview();
+    renderRecent();
+  }
+
+  function renderRecent() {
+    if (!els.recentList) return;
+
+    if (!videos.length) {
+      els.recentList.innerHTML = `<div class="video-empty-state">暂无更新。</div>`;
+      return;
+    }
+
+    els.recentList.innerHTML = videos.slice(0, 4)
+      .map((video, index) => `
+        <button type="button" data-video-action="open" data-video-id="${video.id}">
+          <span>▶</span>
+          <strong>${getIssueLabel(index)} · ${escapeHtml(video.title)}</strong>
+          <small>${index === 0 ? "最新" : formatDate(video.createdAt)}</small>
+        </button>
+      `)
+      .join("");
   }
 
   els.addButton?.addEventListener("click", addVideo);
+  if (els.adminTokenInput) {
+    els.adminTokenInput.value = window.localStorage.getItem("sanmu.video.adminToken") || "";
+  }
   els.urlInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") addVideo();
   });
@@ -213,6 +337,19 @@
     if (action === "open") openVideo(video);
     if (action === "remove") removeVideo(id);
   });
+  els.recentList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-video-action]");
+    if (!button) return;
+
+    const video = videos.find((item) => item.id === button.dataset.videoId);
+    if (button.dataset.videoAction === "open") openVideo(video);
+  });
+  els.typeList?.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    els.typeList.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
+  });
 
   render();
+  loadVideos();
 })();
