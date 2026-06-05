@@ -108,6 +108,9 @@
   async function fetchGithubClientFile() {
     const config = getGithubClientConfig();
     if (!config.repo) throw new Error("请填写 GitHub 仓库，例如 用户名/仓库名");
+    if (!/^[^/\s]+\/[^/\s]+$/.test(config.repo)) {
+      throw new Error("GitHub 仓库格式应为 用户名/仓库名，例如 SanMu0303/你的仓库名");
+    }
 
     const response = await fetch(`https://api.github.com/repos/${config.repo}/contents/${encodeGithubPath(config.path)}?ref=${encodeURIComponent(config.branch)}`, {
       headers: {
@@ -133,6 +136,9 @@
     const config = getGithubClientConfig();
     if (!config.token) throw new Error("请填写 GitHub Token");
     if (!config.repo) throw new Error("请填写 GitHub 仓库，例如 用户名/仓库名");
+    if (!/^[^/\s]+\/[^/\s]+$/.test(config.repo)) {
+      throw new Error("GitHub 仓库格式应为 用户名/仓库名，例如 SanMu0303/你的仓库名");
+    }
 
     const current = await fetchGithubClientFile();
     const body = {
@@ -415,9 +421,12 @@
     els.recentList.innerHTML = videos.slice(0, 4)
       .map((video, index) => `
         <button type="button" data-video-action="open" data-video-id="${video.id}">
-          <span>▶</span>
-          <strong>${getIssueLabel(index)} · ${escapeHtml(video.title)}</strong>
-          <small>${index === 0 ? "最新" : formatDate(video.createdAt)}</small>
+          <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
+          <span>
+            <strong>${escapeHtml(video.title)}</strong>
+            <small>${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
+          </span>
+          ${index === 0 ? "<em>NEW</em>" : ""}
         </button>
       `)
       .join("");
