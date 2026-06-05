@@ -302,6 +302,26 @@ button {
   color: var(--red);
 }
 
+.video-github-panel {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-soft);
+  padding: 0 12px 12px;
+}
+
+.video-github-panel summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 12px 0;
+}
+
+.video-github-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.8fr) minmax(110px, 0.35fr) minmax(130px, 0.45fr);
+  gap: 8px;
+}
+
 .video-list {
   display: grid;
   gap: 8px;
@@ -2654,6 +2674,10 @@ body.theme-dark .alert-red {
   }
 
   .video-add-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .video-github-grid {
     grid-template-columns: 1fr;
   }
 

@@ -11,9 +11,9 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <script src="./config.js?v=20260605-video-store-1" defer></script>
-    <link rel="stylesheet" href="./styles.css?v=20260605-video-store-1" />
-    <script src="./video.js?v=20260605-video-store-1" defer></script>
+    <script src="./config.js?v=20260605-video-github-client-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260605-video-github-client-1" />
+    <script src="./video.js?v=20260605-video-github-client-1" defer></script>
   </head>
   <body class="theme-dark" data-video-admin="true">
     <div class="page-shell">
@@ -50,6 +50,27 @@
             </label>
             <button class="video-add-button" id="addVideoButton" type="button">添加视频</button>
           </div>
+          <details class="video-github-panel" open>
+            <summary>GitHub 长期保存配置</summary>
+            <div class="video-github-grid">
+              <label class="video-field">
+                <span>GitHub Token</span>
+                <input id="videoGithubTokenInput" type="password" placeholder="只保存在你的浏览器" autocomplete="off" />
+              </label>
+              <label class="video-field">
+                <span>仓库</span>
+                <input id="videoGithubRepoInput" type="text" placeholder="用户名/仓库名" autocomplete="off" />
+              </label>
+              <label class="video-field">
+                <span>分支</span>
+                <input id="videoGithubBranchInput" type="text" placeholder="main" autocomplete="off" />
+              </label>
+              <label class="video-field">
+                <span>文件路径</span>
+                <input id="videoGithubPathInput" type="text" placeholder="videos.json" autocomplete="off" />
+              </label>
+            </div>
+          </details>
           <div class="video-form-status" id="videoFormStatus" aria-live="polite"></div>
           <div class="video-list" id="videoList"></div>
         </section>

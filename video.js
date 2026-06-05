@@ -7,6 +7,10 @@
   const els = {
     urlInput: document.getElementById("youtubeUrlInput"),
     titleInput: document.getElementById("videoTitleInput"),
+    githubTokenInput: document.getElementById("videoGithubTokenInput"),
+    githubRepoInput: document.getElementById("videoGithubRepoInput"),
+    githubBranchInput: document.getElementById("videoGithubBranchInput"),
+    githubPathInput: document.getElementById("videoGithubPathInput"),
     addButton: document.getElementById("addVideoButton"),
     formStatus: document.getElementById("videoFormStatus"),
     list: document.getElementById("videoList"),
@@ -39,6 +43,14 @@
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
   }
 
+  function normalizeStore(payload) {
+    return {
+      items: (Array.isArray(payload?.items) ? payload.items : [])
+        .filter((video) => video?.id)
+        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    };
+  }
+
   function getApiOrigin() {
     const configuredOrigin = window.DASHBOARD_CONFIG?.apiOrigin || "";
 
@@ -52,6 +64,96 @@
   function getVideosEndpoint(id = "") {
     const url = `${getApiOrigin()}/api/videos`;
     return id ? `${url}?id=${encodeURIComponent(id)}` : url;
+  }
+
+  function getGithubClientConfig() {
+    return {
+      token: els.githubTokenInput?.value.trim() || window.localStorage.getItem("sanmu.video.githubToken") || "",
+      repo: els.githubRepoInput?.value.trim() || window.localStorage.getItem("sanmu.video.githubRepo") || "",
+      branch: els.githubBranchInput?.value.trim() || window.localStorage.getItem("sanmu.video.githubBranch") || "main",
+      path: els.githubPathInput?.value.trim() || window.localStorage.getItem("sanmu.video.githubPath") || "videos.json"
+    };
+  }
+
+  function saveGithubClientConfig() {
+    const config = getGithubClientConfig();
+    if (config.token) window.localStorage.setItem("sanmu.video.githubToken", config.token);
+    if (config.repo) window.localStorage.setItem("sanmu.video.githubRepo", config.repo);
+    if (config.branch) window.localStorage.setItem("sanmu.video.githubBranch", config.branch);
+    if (config.path) window.localStorage.setItem("sanmu.video.githubPath", config.path);
+  }
+
+  function encodeGithubPath(path) {
+    return String(path || "videos.json")
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+  }
+
+  function toBase64(text) {
+    return btoa(unescape(encodeURIComponent(text)));
+  }
+
+  function fromBase64(text) {
+    return decodeURIComponent(escape(atob(text || "")));
+  }
+
+  async function fetchStaticVideoStore() {
+    const response = await fetch(`./videos.json?ts=${Date.now()}`, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(`static videos HTTP ${response.status}`);
+    return normalizeStore(payload);
+  }
+
+  async function fetchGithubClientFile() {
+    const config = getGithubClientConfig();
+    if (!config.repo) throw new Error("请填写 GitHub 仓库，例如 用户名/仓库名");
+
+    const response = await fetch(`https://api.github.com/repos/${config.repo}/contents/${encodeGithubPath(config.path)}?ref=${encodeURIComponent(config.branch)}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        ...(config.token ? { Authorization: `Bearer ${config.token}` } : {})
+      }
+    });
+
+    if (response.status === 404) {
+      return { store: { items: [] }, sha: "" };
+    }
+
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.message || `GitHub HTTP ${response.status}`);
+
+    return {
+      store: normalizeStore(JSON.parse(fromBase64(payload.content || ""))),
+      sha: payload.sha || ""
+    };
+  }
+
+  async function saveGithubClientStore(store) {
+    const config = getGithubClientConfig();
+    if (!config.token) throw new Error("请填写 GitHub Token");
+    if (!config.repo) throw new Error("请填写 GitHub 仓库，例如 用户名/仓库名");
+
+    const current = await fetchGithubClientFile();
+    const body = {
+      message: "Update video library",
+      branch: config.branch,
+      content: toBase64(`${JSON.stringify(normalizeStore(store), null, 2)}\n`)
+    };
+    if (current.sha) body.sha = current.sha;
+
+    const response = await fetch(`https://api.github.com/repos/${config.repo}/contents/${encodeGithubPath(config.path)}`, {
+      method: "PUT",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${config.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.message || `GitHub save HTTP ${response.status}`);
+    return normalizeStore(store);
   }
 
   async function requestVideoStore(path = "", options = {}) {
@@ -80,9 +182,17 @@
       saveCachedVideos();
       setStatus(isAdmin ? "已读取长期保存的视频列表。" : "");
     } catch (error) {
-      videos = loadCachedVideos();
-      selectedId = videos[0]?.id || "";
-      setStatus("视频 API 暂不可用，正在显示本机缓存。", true);
+      try {
+        const payload = isAdmin && getGithubClientConfig().repo ? await fetchGithubClientFile().then((result) => result.store) : await fetchStaticVideoStore();
+        videos = Array.isArray(payload.items) ? payload.items : [];
+        selectedId = videos[0]?.id || "";
+        saveCachedVideos();
+        setStatus(isAdmin ? "已从 GitHub/静态文件读取视频列表。" : "");
+      } catch (fallbackError) {
+        videos = loadCachedVideos();
+        selectedId = videos[0]?.id || "";
+        setStatus("视频 API 暂不可用，正在显示本机缓存。", true);
+      }
       console.warn("failed to load persistent videos", error);
     }
     render();
@@ -185,12 +295,21 @@
 
     try {
       setStatus("正在保存到长期列表...");
-      const payload = await requestVideoStore(getVideosEndpoint(), {
-        method: "POST",
-        admin: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(video)
-      });
+      let payload;
+      try {
+        payload = await requestVideoStore(getVideosEndpoint(), {
+          method: "POST",
+          admin: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(video)
+        });
+      } catch (apiError) {
+        saveGithubClientConfig();
+        const githubStore = await fetchGithubClientFile();
+        payload = await saveGithubClientStore({
+          items: [video, ...githubStore.store.items.filter((item) => item.id !== video.id)]
+        });
+      }
       videos = Array.isArray(payload.items) ? payload.items : [video, ...videos];
       selectedId = id;
       saveCachedVideos();
@@ -206,10 +325,19 @@
   async function removeVideo(id) {
     try {
       setStatus("正在删除...");
-      const payload = await requestVideoStore(getVideosEndpoint(id), {
-        method: "DELETE",
-        admin: true
-      });
+      let payload;
+      try {
+        payload = await requestVideoStore(getVideosEndpoint(id), {
+          method: "DELETE",
+          admin: true
+        });
+      } catch (apiError) {
+        saveGithubClientConfig();
+        const githubStore = await fetchGithubClientFile();
+        payload = await saveGithubClientStore({
+          items: githubStore.store.items.filter((item) => item.id !== id)
+        });
+      }
       videos = Array.isArray(payload.items) ? payload.items : videos.filter((video) => video.id !== id);
       if (selectedId === id) selectedId = videos[0]?.id || "";
       saveCachedVideos();
@@ -296,6 +424,10 @@
   }
 
   els.addButton?.addEventListener("click", addVideo);
+  if (els.githubTokenInput) els.githubTokenInput.value = window.localStorage.getItem("sanmu.video.githubToken") || "";
+  if (els.githubRepoInput) els.githubRepoInput.value = window.localStorage.getItem("sanmu.video.githubRepo") || "";
+  if (els.githubBranchInput) els.githubBranchInput.value = window.localStorage.getItem("sanmu.video.githubBranch") || "main";
+  if (els.githubPathInput) els.githubPathInput.value = window.localStorage.getItem("sanmu.video.githubPath") || "videos.json";
   els.urlInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") addVideo();
   });
