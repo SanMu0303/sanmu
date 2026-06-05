@@ -4,7 +4,28 @@ const fs = require("fs");
 const path = require("path");
 
 const LOCAL_VIDEOS_FILE = path.join(__dirname, "videos.json");
+const LOCAL_ENV_FILES = [
+  path.join(__dirname, ".env.local"),
+  path.join(__dirname, ".env")
+];
 const DEFAULT_FILE_PATH = "videos.json";
+
+function loadLocalEnv() {
+  for (const file of LOCAL_ENV_FILES) {
+    if (!fs.existsSync(file)) continue;
+
+    const text = fs.readFileSync(file, "utf8");
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+      const [key, ...valueParts] = trimmed.split("=");
+      const value = valueParts.join("=").trim().replace(/^["']|["']$/g, "");
+      if (key && value && !process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 function normalizeVideo(video) {
   const id = String(video?.id || "").trim();
@@ -29,6 +50,8 @@ function normalizeStore(payload) {
 }
 
 function getGithubConfig() {
+  loadLocalEnv();
+
   return {
     token: process.env.GITHUB_TOKEN || process.env.VIDEO_GITHUB_TOKEN || "",
     repo: process.env.GITHUB_REPO || process.env.VIDEO_GITHUB_REPO || "",
@@ -139,6 +162,8 @@ async function writeVideoStore(store) {
 }
 
 function assertAdminToken(req) {
+  loadLocalEnv();
+
   const required = process.env.VIDEO_ADMIN_TOKEN || "";
   if (!required) return;
 
