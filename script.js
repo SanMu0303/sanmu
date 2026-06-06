@@ -159,6 +159,9 @@ function setRefreshState(text) {
 }
 
 function getCurrentTheme() {
+  if (window.SanmuTheme) {
+    return window.SanmuTheme.get();
+  }
   return document.documentElement.classList.contains("theme-dark") || document.body.classList.contains("theme-dark")
     ? "dark"
     : "light";
@@ -175,10 +178,18 @@ function updateThemeToggleLabel() {
 }
 
 function applyTheme(theme) {
-  document.documentElement.classList.toggle("theme-dark", theme === "dark");
-  document.body.classList.toggle("theme-dark", theme === "dark");
-  updateThemeToggleLabel();
+  if (window.SanmuTheme) {
+    window.SanmuTheme.apply(theme);
+  } else {
+    document.documentElement.classList.toggle("theme-dark", theme === "dark");
+    document.body.classList.toggle("theme-dark", theme === "dark");
+    updateThemeToggleLabel();
+  }
 
+  applyChartTheme(theme);
+}
+
+function applyChartTheme(theme) {
   if (state.chart) {
     const isDark = theme === "dark";
     state.chart.applyOptions({
@@ -202,6 +213,12 @@ function applyTheme(theme) {
 }
 
 function initializeTheme() {
+  if (window.SanmuTheme) {
+    applyChartTheme(window.SanmuTheme.get());
+    window.SanmuTheme.onChange(applyChartTheme);
+    return;
+  }
+
   let savedTheme = "light";
   try {
     savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || "light";
@@ -2458,18 +2475,6 @@ document.addEventListener("visibilitychange", () => {
     }
   }
 });
-
-if (themeToggleButton) {
-  themeToggleButton.addEventListener("click", () => {
-    const nextTheme = getCurrentTheme() === "dark" ? "light" : "dark";
-    applyTheme(nextTheme);
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-    } catch (error) {
-      console.error("save theme failed", error);
-    }
-  });
-}
 
 initializeTheme();
 startClock();

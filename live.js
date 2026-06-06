@@ -6,6 +6,7 @@
   const REQUEST_TIMEOUT_MS = 12000;
   let inFlightLoad = null;
   let lastAccountPayload = null;
+  let activeChartMode = "equity";
 
   const els = {
     status: document.getElementById("liveAccountStatus"),
@@ -15,15 +16,23 @@
     winRate: document.getElementById("liveWinRate"),
     chartTitle: document.getElementById("liveChartTitle"),
     chartSubtitle: document.getElementById("liveChartSubtitle"),
+    chartCanvas: document.getElementById("liveChartCanvas"),
+    chartEmptyState: document.querySelector(".live-empty-state"),
     historyTable: document.querySelector(".live-history-table"),
     positionTable: document.querySelector(".live-position-table"),
     tabs: Array.from(document.querySelectorAll(".live-chart-tab"))
   };
 
   const chartCopy = {
-    equity: ["资金曲线等待接入", "已接入当前权益。后续增加权益历史后，将在这里绘制资金曲线。"],
-    return: ["收益率曲线等待接入", "后续 API 返回收益率序列后，将在这里绘制收益率曲线。"],
-    profit: ["盈利金额曲线等待接入", "后续 API 返回盈利金额序列后，将在这里绘制盈利金额曲线。"]
+    equity: ["资金曲线等待接入", "等待账户接口返回权益数据。"],
+    return: ["收益率曲线等待接入", "等待账户接口返回权益数据。"],
+    profit: ["盈利金额曲线等待接入", "等待账户接口返回权益数据。"]
+  };
+
+  const chartModeConfig = {
+    equity: { title: "资金曲线", unit: "USDT", key: "equity", accent: "#22c7bd" },
+    return: { title: "收益率曲线", unit: "%", key: "returnRate", accent: "#3b82f6" },
+    profit: { title: "盈利金额曲线", unit: "USDT", key: "profit", accent: "#f4c95d" }
   };
 
   function getApiOrigins() {
@@ -64,6 +73,124 @@
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
     return `${month}/${day} ${hours}:${minutes}`;
+  }
+
+  function formatChartValue(value, mode) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "--";
+    if (mode === "return") return `${number.toFixed(2)}%`;
+    return `${number.toLocaleString("en-US", { maximumFractionDigits: 2 })} USDT`;
+  }
+
+  function normalizeChartSeries(payload) {
+    const rows = Array.isArray(payload?.equityHistory) ? payload.equityHistory : [];
+    const history = rows
+      .map((row) => ({
+        time: Number(row.time) || 0,
+        equity: Number(row.equity),
+        returnRate: Number(row.returnRate),
+        profit: Number(row.profit)
+      }))
+      .filter((row) => row.time && Number.isFinite(row.equity))
+      .sort((a, b) => a.time - b.time);
+
+    if (history.length) return history;
+
+    const current = Number(payload?.equity?.current);
+    if (!Number.isFinite(current)) return [];
+    return [
+      {
+        time: Number(payload?.updatedAt) || Date.now(),
+        equity: current,
+        returnRate: Number(payload?.equity?.returnRate) || 0,
+        profit: Number(payload?.equity?.profit) || 0
+      }
+    ];
+  }
+
+  function buildPath(points) {
+    return points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
+  }
+
+  function renderChart(payload = lastAccountPayload) {
+    if (!els.chartCanvas) return;
+
+    const config = chartModeConfig[activeChartMode] || chartModeConfig.equity;
+    let series = normalizeChartSeries(payload).filter((row) => Number.isFinite(Number(row[config.key])));
+    if (!series.length) {
+      els.chartCanvas.innerHTML = "";
+      els.chartEmptyState?.classList.remove("has-chart");
+      setText(els.chartTitle, chartCopy[activeChartMode]?.[0]);
+      setText(els.chartSubtitle, chartCopy[activeChartMode]?.[1]);
+      return;
+    }
+
+    const sampleCount = series.length;
+    if (series.length === 1) {
+      series = [
+        {
+          ...series[0],
+          time: series[0].time - 30 * 60 * 1000
+        },
+        series[0]
+      ];
+    }
+
+    const width = 860;
+    const height = 280;
+    const padding = { top: 34, right: 58, bottom: 42, left: 58 };
+    const values = series.map((row) => Number(row[config.key]));
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const valueRange = maxValue - minValue || Math.max(Math.abs(maxValue), 1) * 0.02;
+    const minTime = series[0].time;
+    const maxTime = series[series.length - 1].time;
+    const timeRange = maxTime - minTime || 1;
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const points = series.map((row) => {
+      const value = Number(row[config.key]);
+      return {
+        x: padding.left + ((row.time - minTime) / timeRange) * plotWidth,
+        y: padding.top + (1 - (value - minValue) / valueRange) * plotHeight,
+        value,
+        time: row.time
+      };
+    });
+    const last = points[points.length - 1];
+    const firstValue = values[0];
+    const lastValue = values[values.length - 1];
+    const diff = lastValue - firstValue;
+    const diffClass = diff >= 0 ? "live-chart-up" : "live-chart-down";
+    const areaPath = `${buildPath(points)} L${points[points.length - 1].x.toFixed(2)} ${height - padding.bottom} L${points[0].x.toFixed(2)} ${height - padding.bottom} Z`;
+    const gridLines = [0, 0.25, 0.5, 0.75, 1]
+      .map((ratio) => {
+        const y = padding.top + ratio * plotHeight;
+        const value = maxValue - ratio * valueRange;
+        return `
+          <line class="live-chart-grid" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>
+          <text class="live-chart-axis" x="${width - padding.right + 10}" y="${y + 4}">${formatChartValue(value, activeChartMode)}</text>
+        `;
+      })
+      .join("");
+
+    els.chartCanvas.innerHTML = `
+      <svg class="live-chart-svg ${diffClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+        ${gridLines}
+        <path class="live-chart-area" d="${areaPath}"></path>
+        <path class="live-chart-path" d="${buildPath(points)}"></path>
+        <circle class="live-chart-dot" cx="${last.x}" cy="${last.y}" r="4.5"></circle>
+        <text class="live-chart-last" x="${Math.max(padding.left + 8, Math.min(last.x + 12, width - padding.right - 180))}" y="${Math.max(24, last.y - 10)}">${formatChartValue(last.value, activeChartMode)}</text>
+        <text class="live-chart-time" x="${padding.left}" y="${height - 12}">${formatTime(series[0].time)}</text>
+        <text class="live-chart-time" x="${width - padding.right - 72}" y="${height - 12}">${formatTime(series[series.length - 1].time)}</text>
+      </svg>
+    `;
+    els.chartEmptyState?.classList.add("has-chart");
+    setText(els.chartTitle, config.title);
+    setText(
+      els.chartSubtitle,
+      `${sampleCount} 个采样点 · 最新 ${formatChartValue(lastValue, activeChartMode)} · 较首点 ${diff >= 0 ? "+" : ""}${formatChartValue(diff, activeChartMode)}`
+    );
   }
 
   function renderHistory(rows) {
@@ -248,6 +375,7 @@
 
     renderHistory(payload?.history || []);
     renderPositions(payload?.positions || []);
+    renderChart(payload);
     if (payload?.preview) {
       setText(els.chartTitle, "本地预览数据");
       setText(els.chartSubtitle, "当前网络无法连接 Binance Futures，已显示本地预览数据；网络恢复后会自动切回真实账户。");
@@ -294,9 +422,9 @@
     els.tabs.forEach((tab) => {
       tab.addEventListener("click", () => {
         const mode = tab.dataset.liveChartMode || "equity";
+        activeChartMode = mode;
         els.tabs.forEach((item) => item.classList.toggle("active", item === tab));
-        setText(els.chartTitle, chartCopy[mode]?.[0]);
-        setText(els.chartSubtitle, chartCopy[mode]?.[1]);
+        renderChart();
       });
     });
   }

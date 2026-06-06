@@ -2,11 +2,15 @@
   "use strict";
 
   const STORAGE_KEY = "sanmu.video.library.v1";
+  const DEFAULT_CATEGORIES = ["视频课程", "技术指标", "形态分析", "交易策略", "技术模型"];
+  const DEFAULT_CATEGORY = "视频课程";
   const DEFAULT_VIDEOS = [];
 
   const els = {
     urlInput: document.getElementById("youtubeUrlInput"),
     titleInput: document.getElementById("videoTitleInput"),
+    categorySelect: document.getElementById("videoCategorySelect"),
+    newCategoryInput: document.getElementById("videoNewCategoryInput"),
     githubTokenInput: document.getElementById("videoGithubTokenInput"),
     githubRepoInput: document.getElementById("videoGithubRepoInput"),
     githubBranchInput: document.getElementById("videoGithubBranchInput"),
@@ -22,10 +26,14 @@
     previewMeta: document.getElementById("videoPreviewMeta"),
     openSelectedButton: document.getElementById("openSelectedVideoButton"),
     recentList: document.getElementById("videoRecentList"),
-    typeList: document.getElementById("videoTypeList")
+    typeList: document.getElementById("videoTypeList"),
+    categoryPageTitle: document.getElementById("videoCategoryPageTitle"),
+    categoryHeading: document.getElementById("videoCategoryHeading"),
+    categorySubtitle: document.getElementById("videoCategorySubtitle")
   };
 
   const isAdmin = document.body?.dataset.videoAdmin === "true";
+  const isCategoryPage = document.body?.dataset.videoCategoryPage === "true";
   let videos = [];
   let selectedId = "";
 
@@ -47,6 +55,10 @@
     return {
       items: (Array.isArray(payload?.items) ? payload.items : [])
         .filter((video) => video?.id)
+        .map((video) => ({
+          ...video,
+          category: String(video.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY
+        }))
         .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
     };
   }
@@ -253,6 +265,32 @@
     return `第${Math.max(1, videos.length - index)}期`;
   }
 
+  function getCurrentCategory() {
+    return new URLSearchParams(window.location.search).get("category") || "";
+  }
+
+  function getVideoCategory(video) {
+    return String(video?.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY;
+  }
+
+  function getCategories() {
+    return Array.from(new Set([...DEFAULT_CATEGORIES, ...videos.map(getVideoCategory)])).filter(Boolean);
+  }
+
+  function getCategoryCounts() {
+    return videos.reduce((counts, video) => {
+      const category = getVideoCategory(video);
+      counts[category] = (counts[category] || 0) + 1;
+      return counts;
+    }, {});
+  }
+
+  function getVisibleVideos() {
+    const category = getCurrentCategory();
+    if (!isCategoryPage || !category) return videos;
+    return videos.filter((video) => getVideoCategory(video) === category);
+  }
+
   function setStatus(message, failed = false) {
     if (!els.formStatus) return;
     els.formStatus.textContent = message || "";
@@ -292,9 +330,11 @@
     }
 
     const title = els.titleInput?.value.trim() || `YouTube 视频 ${id}`;
+    const category = els.newCategoryInput?.value.trim() || els.categorySelect?.value || DEFAULT_CATEGORY;
     const video = {
       id,
       title,
+      category,
       url: getVideoUrl(id),
       createdAt: Date.now()
     };
@@ -321,6 +361,7 @@
       saveCachedVideos();
       if (els.urlInput) els.urlInput.value = "";
       if (els.titleInput) els.titleInput.value = "";
+      if (els.newCategoryInput) els.newCategoryInput.value = "";
       setStatus("已保存到长期视频列表。");
       render();
     } catch (error) {
@@ -357,12 +398,14 @@
   function renderList() {
     if (!els.list) return;
 
-    if (!videos.length) {
+    const visibleVideos = getVisibleVideos();
+
+    if (!visibleVideos.length) {
       els.list.innerHTML = `<div class="video-empty-state">暂无视频。请在视频管理页添加 YouTube 链接。</div>`;
       return;
     }
 
-    els.list.innerHTML = videos
+    els.list.innerHTML = visibleVideos
       .map((video, index) => `
         <article class="video-list-item${video.id === selectedId ? " active" : ""}" data-video-id="${video.id}">
           <button class="video-list-main" type="button" data-video-action="open" data-video-id="${video.id}">
@@ -373,7 +416,7 @@
             </span>
             <span>
               <strong>${escapeHtml(video.title)}</strong>
-              <small>26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
+              <small>${getVideoCategory(video)} · 26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
             </span>
           </button>
           ${isAdmin ? `
@@ -389,7 +432,11 @@
 
   function renderPreview() {
     const selected = videos.find((video) => video.id === selectedId);
-    if (els.count) els.count.textContent = `${videos.length} 个视频`;
+    const visibleVideos = getVisibleVideos();
+    if (els.count) els.count.textContent = `${visibleVideos.length} 个视频`;
+    if (els.categoryPageTitle && getCurrentCategory()) els.categoryPageTitle.textContent = getCurrentCategory();
+    if (els.categoryHeading && getCurrentCategory()) els.categoryHeading.textContent = getCurrentCategory();
+    if (els.categorySubtitle && getCurrentCategory()) els.categorySubtitle.textContent = `${getCurrentCategory()} 类型下共有 ${visibleVideos.length} 个视频。`;
 
     if (!selected) {
       if (els.previewEmpty) els.previewEmpty.hidden = false;
@@ -408,6 +455,34 @@
     renderList();
     renderPreview();
     renderRecent();
+    renderTypes();
+    renderCategorySelect();
+  }
+
+  function renderCategorySelect() {
+    if (!els.categorySelect) return;
+    const current = els.categorySelect.value || DEFAULT_CATEGORY;
+    els.categorySelect.innerHTML = getCategories()
+      .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+      .join("");
+    els.categorySelect.value = getCategories().includes(current) ? current : DEFAULT_CATEGORY;
+  }
+
+  function renderTypes() {
+    if (!els.typeList) return;
+    const counts = getCategoryCounts();
+    const total = videos.length;
+    const categories = getCategories();
+    els.typeList.innerHTML = `
+      <button class="active" type="button" data-category-link="./video.html">
+        <span>全部视频</span><strong>${total}</strong>
+      </button>
+      ${categories.map((category) => `
+        <button type="button" data-category-link="./video-category.html?category=${encodeURIComponent(category)}">
+          <span>${escapeHtml(category)}</span><strong>${counts[category] || 0}</strong>
+        </button>
+      `).join("")}
+    `;
   }
 
   function renderRecent() {
@@ -424,7 +499,7 @@
           <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
           <span>
             <strong>${escapeHtml(video.title)}</strong>
-            <small>${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
+            <small>${getVideoCategory(video)} · ${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
           </span>
           ${index === 0 ? "<em>NEW</em>" : ""}
         </button>
@@ -465,7 +540,8 @@
   els.typeList?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
-    els.typeList.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
+    const link = button.dataset.categoryLink;
+    if (link) window.location.href = link;
   });
 
   render();

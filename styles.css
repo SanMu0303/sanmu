@@ -238,7 +238,7 @@ button {
 }
 
 .video-add-panel-public {
-  grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.55fr) auto;
+  grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.55fr) minmax(150px, 0.45fr) minmax(150px, 0.45fr) auto;
 }
 
 .video-field {
@@ -265,7 +265,21 @@ button {
   padding: 0 11px;
 }
 
-.video-field input:focus {
+.video-field select {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  padding: 0 11px;
+}
+
+.video-field input:focus,
+.video-field select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
 }
@@ -538,6 +552,14 @@ button {
   margin: 42px auto;
 }
 
+.video-player-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
 .video-player-panel {
   position: relative;
   overflow: hidden;
@@ -549,7 +571,6 @@ button {
   display: inline-flex;
   align-items: center;
   height: 46px;
-  margin-bottom: 28px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: #fff;
@@ -679,9 +700,15 @@ button {
   text-align: left;
 }
 
-.video-type-list button::after {
-  content: "→";
+.video-type-list button strong {
+  min-width: 28px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 3px 8px;
+  text-align: center;
 }
 
 .video-type-list button.active {
@@ -690,7 +717,8 @@ button {
   color: #fff;
 }
 
-.video-type-list button.active::after {
+.video-type-list button.active strong {
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
 
@@ -1099,6 +1127,62 @@ button {
   filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 35%, transparent));
 }
 
+.live-chart-canvas {
+  position: absolute;
+  inset: 54px 10px 10px;
+  z-index: 1;
+}
+
+.live-chart-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  color: var(--accent);
+}
+
+.live-chart-grid {
+  stroke: color-mix(in srgb, var(--border) 72%, transparent);
+  stroke-width: 1;
+}
+
+.live-chart-axis,
+.live-chart-time {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-chart-area {
+  fill: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.live-chart-path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 12px color-mix(in srgb, currentColor 42%, transparent));
+}
+
+.live-chart-dot {
+  fill: var(--panel);
+  stroke: currentColor;
+  stroke-width: 4;
+}
+
+.live-chart-last {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-chart-down {
+  color: var(--danger);
+}
+
 .live-empty-state {
   position: absolute;
   inset: 0;
@@ -1110,15 +1194,37 @@ button {
   color: var(--muted);
 }
 
+.live-empty-state.has-chart {
+  top: auto;
+  right: auto;
+  bottom: 14px;
+  left: 18px;
+  z-index: 2;
+  display: block;
+  padding: 0;
+  text-align: left;
+  pointer-events: none;
+}
+
 .live-empty-state strong {
   color: var(--text);
   font-size: 15px;
+}
+
+.live-empty-state.has-chart strong {
+  display: block;
+  margin-bottom: 4px;
 }
 
 .live-empty-state span {
   max-width: 420px;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.live-empty-state.has-chart span {
+  display: block;
+  max-width: min(560px, 70vw);
 }
 
 .live-table-wrap {
@@ -1355,6 +1461,11 @@ body.theme-dark .theme-toggle-button {
   border-color: #d6dfec;
   background: #f3f7ff;
   color: #111827;
+}
+
+body.theme-dark .video-back-link {
+  background: var(--panel);
+  color: var(--text);
 }
 
 html.theme-dark .top-nav,

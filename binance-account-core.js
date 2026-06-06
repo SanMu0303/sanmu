@@ -12,9 +12,12 @@ const DEFAULT_BINANCE_FAPI_ORIGINS = [
 ];
 
 const PRIVATE_ENV_FILE = path.join(__dirname, "binance-private.env");
+const EQUITY_HISTORY_FILE = path.join(__dirname, "live-equity-history.json");
 const REQUEST_TIMEOUT_MS = 4500;
 const ACCOUNT_CACHE_MS = 12000;
 const STALE_CACHE_MS = 5 * 60 * 1000;
+const EQUITY_HISTORY_LIMIT = 2000;
+const EQUITY_HISTORY_MIN_INTERVAL_MS = 60 * 1000;
 
 let serverTimeOffset = 0;
 let serverTimeSyncedAt = 0;
@@ -320,6 +323,83 @@ function formatSignedAmount(value) {
   return `${prefix}${toFixedDynamic(number, 4)}`;
 }
 
+function readEquityHistory() {
+  try {
+    if (!fs.existsSync(EQUITY_HISTORY_FILE)) return [];
+    const payload = JSON.parse(fs.readFileSync(EQUITY_HISTORY_FILE, "utf8"));
+    return Array.isArray(payload?.items) ? payload.items.filter((item) => Number.isFinite(Number(item?.equity))) : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeEquityHistory(items) {
+  if (process.env.VERCEL) return;
+  try {
+    fs.writeFileSync(
+      EQUITY_HISTORY_FILE,
+      `${JSON.stringify({ items: items.slice(-EQUITY_HISTORY_LIMIT) }, null, 2)}\n`,
+      "utf8"
+    );
+  } catch (error) {
+    console.warn("write equity history failed:", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function appendEquityHistoryPoint(point) {
+  const equity = toNumber(point?.equity);
+  if (!Number.isFinite(equity) || equity <= 0) return readEquityHistory();
+
+  const time = Number(point.time) || Date.now();
+  const history = readEquityHistory();
+  const last = history[history.length - 1];
+  const nextPoint = {
+    time,
+    equity,
+    returnRate: toNumber(point.returnRate),
+    profit: toNumber(point.profit)
+  };
+
+  if (last) {
+    const lastTime = Number(last.time) || 0;
+    const lastEquity = toNumber(last.equity);
+    if (time - lastTime < EQUITY_HISTORY_MIN_INTERVAL_MS && Math.abs(lastEquity - equity) < 0.01) {
+      return history;
+    }
+  }
+
+  const nextHistory = [...history, nextPoint].slice(-EQUITY_HISTORY_LIMIT);
+  const baseEquity = toNumber(nextHistory[0]?.equity, equity) || equity;
+  const normalized = nextHistory.map((item) => {
+    const itemEquity = toNumber(item.equity);
+    const profit = itemEquity - baseEquity;
+    return {
+      ...item,
+      equity: itemEquity,
+      returnRate: baseEquity ? (profit / baseEquity) * 100 : 0,
+      profit
+    };
+  });
+
+  writeEquityHistory(normalized);
+  return normalized;
+}
+
+function buildPreviewEquityHistory(now) {
+  const start = now - 7 * 60 * 60 * 1000;
+  const values = [12720, 12764, 12738, 12802, 12791, 12828, 12846.32];
+  const base = values[0];
+  return values.map((equity, index) => {
+    const profit = equity - base;
+    return {
+      time: start + index * 70 * 60 * 1000,
+      equity,
+      returnRate: base ? (profit / base) * 100 : 0,
+      profit
+    };
+  });
+}
+
 function normalizePosition(position) {
   const amount = toNumber(position.positionAmt);
   const markPrice = toNumber(position.markPrice);
@@ -412,6 +492,7 @@ function getPreviewAccountPayload(error) {
       returnRate: 0.32,
       profit: 40.52
     },
+    equityHistory: buildPreviewEquityHistory(now),
     positions: [
       {
         symbol: "BTCUSDT",
@@ -474,12 +555,21 @@ async function buildBinanceAccountPayload() {
     .filter((row) => new Date(row.time).toDateString() === new Date().toDateString())
     .reduce((sum, row) => sum + row.pnlValue, 0);
 
+  const updatedAt = Date.now();
+  const currentEquity = totalMarginBalance || totalWalletBalance;
+  const equityHistory = appendEquityHistoryPoint({
+    time: updatedAt,
+    equity: currentEquity,
+    returnRate: totalWalletBalance ? (totalUnrealizedProfit / totalWalletBalance) * 100 : 0,
+    profit: totalUnrealizedProfit
+  });
+
   return {
     source: "Binance Futures",
     sourceStatus: "ok",
-    updatedAt: Date.now(),
+    updatedAt,
     summary: {
-      totalEquity: `${toFixedDynamic(totalMarginBalance || totalWalletBalance, 2)} USDT`,
+      totalEquity: `${toFixedDynamic(currentEquity, 2)} USDT`,
       todayPnl: `${formatSignedAmount(realizedToday + totalUnrealizedProfit)} USDT`,
       maxDrawdown: "--",
       winRate: "--",
@@ -488,10 +578,11 @@ async function buildBinanceAccountPayload() {
       unrealizedPnl: `${formatSignedAmount(totalUnrealizedProfit)} USDT`
     },
     equity: {
-      current: totalMarginBalance || totalWalletBalance,
+      current: currentEquity,
       returnRate: totalWalletBalance ? (totalUnrealizedProfit / totalWalletBalance) * 100 : 0,
       profit: totalUnrealizedProfit
     },
+    equityHistory,
     positions,
     history: incomeRows
   };

@@ -10,9 +10,10 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260518-live-account-1" />
-    <script src="./config.js?v=20260528-live-real-1" defer></script>
-    <script src="./live.js?v=20260528-live-real-1" defer></script>
+    <script src="./theme.js?v=20260606-live-chart-2" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260606-live-chart-2" />
+    <script src="./config.js?v=20260606-live-chart-2" defer></script>
+    <script src="./live.js?v=20260606-live-chart-2" defer></script>
   </head>
   <body class="theme-dark">
     <div class="page-shell">
@@ -30,6 +31,9 @@
           <a class="top-nav-link active" href="./live.html" aria-current="page">实盘</a>
           <a class="top-nav-link" href="./community.html">社群</a>
         </nav>
+        <div class="toolbar-meta topbar-actions">
+          <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+        </div>
       </header>
 
       <main class="live-grid">
@@ -69,7 +73,7 @@
                 <button class="live-chart-tab" type="button" data-live-chart-mode="return">收益率</button>
                 <button class="live-chart-tab" type="button" data-live-chart-mode="profit">盈利</button>
               </div>
-              <div class="live-chart-line"></div>
+              <div class="live-chart-canvas" id="liveChartCanvas" aria-label="实盘资金曲线"></div>
               <div class="live-empty-state">
                 <strong id="liveChartTitle">资金曲线等待接入</strong>
                 <span id="liveChartSubtitle">后续 API 返回时间、权益、收益率后，将在这里绘制曲线。</span>

@@ -10,12 +10,16 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260605-video-course-1" />
-    <script src="./video-player.js?v=20260605-video-course-1" defer></script>
+    <script src="./theme.js?v=20260606-global-theme-3" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260606-global-theme-3" />
+    <script src="./video-player.js?v=20260606-global-theme-3" defer></script>
   </head>
   <body class="theme-dark video-player-body video-public-body">
     <main class="video-player-shell">
-      <a class="video-back-link" href="./video.html">← 返回课程列表</a>
+      <div class="video-player-topline">
+        <a class="video-back-link" href="./video.html">← 返回课程列表</a>
+        <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+      </div>
       <section class="board-panel video-player-panel">
         <div class="video-player-header">
           <img id="playerAvatar" src="./assets/wechat-qr.jpg" alt="" />

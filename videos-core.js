@@ -9,6 +9,7 @@ const LOCAL_ENV_FILES = [
   path.join(__dirname, ".env")
 ];
 const DEFAULT_FILE_PATH = "videos.json";
+const DEFAULT_VIDEO_CATEGORY = "视频课程";
 
 function isReadonlyServerlessRuntime() {
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || __dirname.startsWith("/var/task"));
@@ -46,6 +47,7 @@ function normalizeVideo(video) {
   return {
     id,
     title: String(video?.title || `YouTube 视频 ${id}`).trim(),
+    category: String(video?.category || DEFAULT_VIDEO_CATEGORY).trim() || DEFAULT_VIDEO_CATEGORY,
     url: `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
     createdAt: Number(video?.createdAt) || Date.now()
   };
