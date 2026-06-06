@@ -3,7 +3,7 @@
 
   const LOCAL_API_ORIGIN = "http://127.0.0.1:8787";
   const REFRESH_MS = 30000;
-  const REQUEST_TIMEOUT_MS = 12000;
+  const REQUEST_TIMEOUT_MS = 30000;
   let inFlightLoad = null;
   let lastAccountPayload = null;
   let activeChartMode = "equity";
@@ -16,9 +16,13 @@
     winRate: document.getElementById("liveWinRate"),
     chartTitle: document.getElementById("liveChartTitle"),
     chartSubtitle: document.getElementById("liveChartSubtitle"),
+    chartSummaryBar: document.getElementById("liveChartSummaryBar"),
     chartCanvas: document.getElementById("liveChartCanvas"),
     chartEmptyState: document.querySelector(".live-empty-state"),
+    historyStatus: document.getElementById("liveHistoryStatus"),
+    closedTradeStatus: document.getElementById("liveClosedTradeStatus"),
     historyTable: document.querySelector(".live-history-table"),
+    closedTradesTable: document.querySelector(".live-closed-trades-table"),
     positionTable: document.querySelector(".live-position-table"),
     tabs: Array.from(document.querySelectorAll(".live-chart-tab"))
   };
@@ -65,6 +69,29 @@
     return number > 0 ? "live-pnl-positive" : "live-pnl-negative";
   }
 
+  function formatIncomeType(type) {
+    const map = {
+      TRANSFER: "划转",
+      WELCOME_BONUS: "体验金",
+      REALIZED_PNL: "已实现盈亏",
+      FUNDING_FEE: "资金费",
+      COMMISSION: "手续费",
+      INSURANCE_CLEAR: "保险清算",
+      REFERRAL_KICKBACK: "返佣",
+      COMMISSION_REBATE: "手续费返还",
+      API_REBATE: "API 返佣",
+      CONTEST_REWARD: "活动奖励",
+      CROSS_COLLATERAL_TRANSFER: "联合保证金划转",
+      OPTIONS_PREMIUM_FEE: "期权权利金",
+      OPTIONS_SETTLE_PROFIT: "期权结算收益",
+      AUTO_EXCHANGE: "自动兑换",
+      COIN_SWAP_DEPOSIT: "币种兑换入金",
+      COIN_SWAP_WITHDRAW: "币种兑换出金",
+      POSITION_LIMIT_INCREASE_FEE: "持仓额度提升费"
+    };
+    return map[type] || type || "--";
+  }
+
   function formatTime(timestamp) {
     if (!timestamp) return "--";
     const date = new Date(timestamp);
@@ -80,6 +107,14 @@
     if (!Number.isFinite(number)) return "--";
     if (mode === "return") return `${number.toFixed(2)}%`;
     return `${number.toLocaleString("en-US", { maximumFractionDigits: 2 })} USDT`;
+  }
+
+  function formatPrice(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "--";
+    return number >= 1000
+      ? number.toLocaleString("en-US", { maximumFractionDigits: 2 })
+      : number.toLocaleString("en-US", { maximumFractionDigits: 6 });
   }
 
   function normalizeChartSeries(payload) {
@@ -112,6 +147,25 @@
     return points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
   }
 
+  function buildSmoothPath(points) {
+    if (points.length < 2) return buildPath(points);
+
+    const commands = [`M${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`];
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const current = points[index];
+      const next = points[index + 1];
+      const previous = points[index - 1] || current;
+      const after = points[index + 2] || next;
+      const tension = 0.14;
+      const cp1x = current.x + (next.x - previous.x) * tension;
+      const cp1y = current.y + (next.y - previous.y) * tension;
+      const cp2x = next.x - (after.x - current.x) * tension;
+      const cp2y = next.y - (after.y - current.y) * tension;
+      commands.push(`C${cp1x.toFixed(2)} ${cp1y.toFixed(2)} ${cp2x.toFixed(2)} ${cp2y.toFixed(2)} ${next.x.toFixed(2)} ${next.y.toFixed(2)}`);
+    }
+    return commands.join(" ");
+  }
+
   function renderChart(payload = lastAccountPayload) {
     if (!els.chartCanvas) return;
 
@@ -120,6 +174,7 @@
     if (!series.length) {
       els.chartCanvas.innerHTML = "";
       els.chartEmptyState?.classList.remove("has-chart");
+      setText(els.chartSummaryBar, "等待资金曲线数据");
       setText(els.chartTitle, chartCopy[activeChartMode]?.[0]);
       setText(els.chartSubtitle, chartCopy[activeChartMode]?.[1]);
       return;
@@ -136,13 +191,16 @@
       ];
     }
 
-    const width = 860;
-    const height = 280;
-    const padding = { top: 34, right: 58, bottom: 42, left: 58 };
+    const width = 1000;
+    const height = 320;
+    const padding = { top: 34, right: 18, bottom: 42, left: 0 };
     const values = series.map((row) => Number(row[config.key]));
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
-    const valueRange = maxValue - minValue || Math.max(Math.abs(maxValue), 1) * 0.02;
+    const rawMinValue = Math.min(...values);
+    const rawMaxValue = Math.max(...values);
+    const rawRange = rawMaxValue - rawMinValue || Math.max(Math.abs(rawMaxValue), 1) * 0.02;
+    const minValue = rawMinValue - rawRange * 0.08;
+    const maxValue = rawMaxValue + rawRange * 0.08;
+    const valueRange = maxValue - minValue;
     const minTime = series[0].time;
     const maxTime = series[series.length - 1].time;
     const timeRange = maxTime - minTime || 1;
@@ -162,70 +220,89 @@
     const lastValue = values[values.length - 1];
     const diff = lastValue - firstValue;
     const diffClass = diff >= 0 ? "live-chart-up" : "live-chart-down";
-    const areaPath = `${buildPath(points)} L${points[points.length - 1].x.toFixed(2)} ${height - padding.bottom} L${points[0].x.toFixed(2)} ${height - padding.bottom} Z`;
+    const smoothPath = buildSmoothPath(points);
+    const areaPath = `${smoothPath} L${points[points.length - 1].x.toFixed(2)} ${height - padding.bottom} L${points[0].x.toFixed(2)} ${height - padding.bottom} Z`;
     const gridLines = [0, 0.25, 0.5, 0.75, 1]
       .map((ratio) => {
         const y = padding.top + ratio * plotHeight;
         const value = maxValue - ratio * valueRange;
         return `
           <line class="live-chart-grid" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>
-          <text class="live-chart-axis" x="${width - padding.right + 10}" y="${y + 4}">${formatChartValue(value, activeChartMode)}</text>
+          <text class="live-chart-axis" x="${width - padding.right - 122}" y="${y - 5}">${formatChartValue(value, activeChartMode)}</text>
         `;
       })
       .join("");
+    const timeTicks = [0, 0.2, 0.4, 0.6, 0.8, 1]
+      .map((ratio) => {
+        const x = padding.left + ratio * plotWidth;
+        const time = minTime + ratio * timeRange;
+        const anchor = ratio === 0 ? "start" : ratio === 1 ? "end" : "middle";
+        return `
+          <line class="live-chart-time-grid" x1="${x}" y1="${padding.top}" x2="${x}" y2="${height - padding.bottom}"></line>
+          <text class="live-chart-time" x="${x}" y="${height - 12}" text-anchor="${anchor}">${formatTime(time)}</text>
+        `;
+      })
+      .join("");
+    const summaryText = `${sampleCount} 个采样点 · 最新 ${formatChartValue(lastValue, activeChartMode)} · 较首点 ${diff >= 0 ? "+" : ""}${formatChartValue(diff, activeChartMode)}`;
 
     els.chartCanvas.innerHTML = `
       <svg class="live-chart-svg ${diffClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+        <defs>
+          <linearGradient id="liveChartFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.24"></stop>
+            <stop offset="72%" stop-color="currentColor" stop-opacity="0.06"></stop>
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
+          </linearGradient>
+        </defs>
+        ${timeTicks}
         ${gridLines}
         <path class="live-chart-area" d="${areaPath}"></path>
-        <path class="live-chart-path" d="${buildPath(points)}"></path>
+        <path class="live-chart-path live-chart-glow" d="${smoothPath}"></path>
+        <path class="live-chart-path" d="${smoothPath}"></path>
         <circle class="live-chart-dot" cx="${last.x}" cy="${last.y}" r="4.5"></circle>
         <text class="live-chart-last" x="${Math.max(padding.left + 8, Math.min(last.x + 12, width - padding.right - 180))}" y="${Math.max(24, last.y - 10)}">${formatChartValue(last.value, activeChartMode)}</text>
-        <text class="live-chart-time" x="${padding.left}" y="${height - 12}">${formatTime(series[0].time)}</text>
-        <text class="live-chart-time" x="${width - padding.right - 72}" y="${height - 12}">${formatTime(series[series.length - 1].time)}</text>
       </svg>
     `;
     els.chartEmptyState?.classList.add("has-chart");
-    setText(els.chartTitle, config.title);
-    setText(
-      els.chartSubtitle,
-      `${sampleCount} 个采样点 · 最新 ${formatChartValue(lastValue, activeChartMode)} · 较首点 ${diff >= 0 ? "+" : ""}${formatChartValue(diff, activeChartMode)}`
-    );
+    setText(els.chartSummaryBar, summaryText);
+    setText(els.chartTitle, "");
+    setText(els.chartSubtitle, "");
   }
 
   function renderHistory(rows) {
     if (!els.historyTable) return;
+    const visibleRows = (rows || []).slice(0, 300);
 
     const head = `
       <div class="live-table-row live-table-head">
         <div>时间</div>
         <div>标的</div>
-        <div>类型</div>
+        <div>流水类型</div>
         <div>方向</div>
-        <div>平仓</div>
+        <div>总资金权益</div>
         <div>收益</div>
       </div>
     `;
 
-    if (!rows?.length) {
-      els.historyTable.innerHTML = `${head}<div class="live-empty-row">暂无历史收益流水。</div>`;
+    if (!visibleRows.length) {
+      els.historyTable.innerHTML = `${head}<div class="live-empty-row">暂无资金流水。</div>`;
       return;
     }
 
-    els.historyTable.innerHTML = `${head}${rows
+    els.historyTable.innerHTML = `${head}${visibleRows
       .map(
         (row) => `
           <div class="live-table-row">
             <div>${formatTime(row.time)}</div>
             <div>${row.symbol || "--"}</div>
-            <div>${row.type || "--"}</div>
+            <div>${formatIncomeType(row.type)}</div>
             <div>${row.side || "--"}</div>
-            <div>${row.close || "--"}</div>
+            <div>${row.totalEquity || "--"}</div>
             <div class="${pnlClass(row.pnlValue)}">${row.pnl || "--"}</div>
           </div>
         `
       )
-      .join("")}`;
+      .join("")}${rows.length > visibleRows.length ? `<div class="live-empty-row">已显示最近 ${visibleRows.length} 条，完整记录保存在本地历史文件。</div>` : ""}`;
   }
 
   function renderHistoryMessage(message) {
@@ -234,9 +311,9 @@
       <div class="live-table-row live-table-head">
         <div>时间</div>
         <div>标的</div>
-        <div>类型</div>
+        <div>流水类型</div>
         <div>方向</div>
-        <div>平仓</div>
+        <div>总资金权益</div>
         <div>收益</div>
       </div>
       <div class="live-empty-row">${message}</div>
@@ -288,6 +365,60 @@
         <div>持仓</div>
         <div>均价</div>
         <div>浮盈亏</div>
+      </div>
+      <div class="live-empty-row">${message}</div>
+    `;
+  }
+
+  function renderClosedTrades(rows) {
+    if (!els.closedTradesTable) return;
+    const visibleRows = (rows || []).slice(0, 200);
+    const head = `
+      <div class="live-table-row live-table-head">
+        <div>开仓时间</div>
+        <div>标的</div>
+        <div>入场价格</div>
+        <div>方向</div>
+        <div>离场价格</div>
+        <div>收益</div>
+      </div>
+    `;
+
+    if (!visibleRows.length) {
+      els.closedTradesTable.innerHTML = `${head}<div class="live-empty-row">暂无可重建的历史交易。成交明细同步后会显示在这里。</div>`;
+      return;
+    }
+
+    els.closedTradesTable.innerHTML = `${head}${visibleRows
+      .map((row) => {
+        const detail = `盈亏 ${formatChartValue(row.realizedPnl || 0, "equity")} · 手续费 -${formatChartValue(row.commission || 0, "equity")} · 资金费 ${formatChartValue(row.funding || 0, "equity")}`;
+        return `
+          <div class="live-table-row">
+            <div>${formatTime(row.openTime)}</div>
+            <div>${row.symbol || "--"}</div>
+            <div>${formatPrice(row.entryPrice)}</div>
+            <div>${row.side || "--"}</div>
+            <div>${formatPrice(row.exitPrice)}</div>
+            <div class="${pnlClass(row.pnlValue)}">
+              <strong>${row.pnl || formatChartValue(row.pnlValue, "equity")}</strong>
+              <span>${detail}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join("")}${rows.length > visibleRows.length ? `<div class="live-empty-row">已显示最近 ${visibleRows.length} 笔，完整记录保存在本地历史交易文件。</div>` : ""}`;
+  }
+
+  function renderClosedTradesMessage(message) {
+    if (!els.closedTradesTable) return;
+    els.closedTradesTable.innerHTML = `
+      <div class="live-table-row live-table-head">
+        <div>开仓时间</div>
+        <div>标的</div>
+        <div>入场价格</div>
+        <div>方向</div>
+        <div>离场价格</div>
+        <div>收益</div>
       </div>
       <div class="live-empty-row">${message}</div>
     `;
@@ -373,9 +504,22 @@
     els.todayPnl?.classList.toggle("live-pnl-positive", Number(payload?.equity?.profit) > 0);
     els.todayPnl?.classList.toggle("live-pnl-negative", Number(payload?.equity?.profit) < 0);
 
-    renderHistory(payload?.history || []);
+    let runningEquity = Number(payload?.equity?.current);
+    const hasRunningEquity = Number.isFinite(runningEquity);
+    const historyRows = (payload?.history || []).map((row) => {
+      const totalEquity = hasRunningEquity ? formatChartValue(runningEquity, "equity") : row.totalEquity || summary.totalEquity || "--";
+      if (hasRunningEquity) runningEquity -= Number(row.pnlValue) || 0;
+      return {
+        ...row,
+        totalEquity
+      };
+    });
+    renderHistory(historyRows);
     renderPositions(payload?.positions || []);
+    renderClosedTrades(payload?.closedTrades || []);
     renderChart(payload);
+    setText(els.historyStatus, payload?.history?.length ? `已追溯 ${payload.history.length} 条` : "暂无历史记录");
+    setText(els.closedTradeStatus, payload?.closedTrades?.length ? `已重建 ${payload.closedTrades.length} 笔` : "等待成交明细");
     if (payload?.preview) {
       setText(els.chartTitle, "本地预览数据");
       setText(els.chartSubtitle, "当前网络无法连接 Binance Futures，已显示本地预览数据；网络恢复后会自动切回真实账户。");
@@ -405,6 +549,7 @@
         setText(els.chartSubtitle, readableError);
         renderHistoryMessage(readableError);
         renderPositionsMessage(readableError);
+        renderClosedTradesMessage(readableError);
         console.warn("Binance account load failed:", error);
       } finally {
         inFlightLoad = null;

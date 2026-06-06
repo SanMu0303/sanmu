@@ -13,11 +13,20 @@ const DEFAULT_BINANCE_FAPI_ORIGINS = [
 
 const PRIVATE_ENV_FILE = path.join(__dirname, "binance-private.env");
 const EQUITY_HISTORY_FILE = path.join(__dirname, "live-equity-history.json");
+const TRADE_HISTORY_FILE = path.join(__dirname, "live-trade-history.json");
+const CLOSED_TRADES_FILE = path.join(__dirname, "live-closed-trades.json");
 const REQUEST_TIMEOUT_MS = 4500;
 const ACCOUNT_CACHE_MS = 12000;
 const STALE_CACHE_MS = 5 * 60 * 1000;
 const EQUITY_HISTORY_LIMIT = 2000;
 const EQUITY_HISTORY_MIN_INTERVAL_MS = 60 * 1000;
+const TRADE_HISTORY_LIMIT = 5000;
+const TRADE_HISTORY_LOOKBACK_DAYS = 365;
+const TRADE_HISTORY_PAGE_DAYS = 30;
+const CLOSED_TRADES_LIMIT = 1000;
+const CLOSED_TRADES_SYMBOL_LIMIT = 8;
+const CLOSED_TRADES_LOOKBACK_DAYS = 56;
+const CLOSED_TRADES_PAGE_DAYS = 7;
 
 let serverTimeOffset = 0;
 let serverTimeSyncedAt = 0;
@@ -323,6 +332,76 @@ function formatSignedAmount(value) {
   return `${prefix}${toFixedDynamic(number, 4)}`;
 }
 
+function getHistoryLookbackDays() {
+  loadLocalPrivateEnv();
+  const configured = Number(process.env.BINANCE_HISTORY_LOOKBACK_DAYS || process.env.LIVE_HISTORY_LOOKBACK_DAYS);
+  return Number.isFinite(configured) && configured > 0 ? Math.min(configured, 3650) : TRADE_HISTORY_LOOKBACK_DAYS;
+}
+
+function getClosedTradesLookbackDays() {
+  loadLocalPrivateEnv();
+  const configured = Number(process.env.BINANCE_CLOSED_TRADES_LOOKBACK_DAYS || process.env.LIVE_CLOSED_TRADES_LOOKBACK_DAYS);
+  return Number.isFinite(configured) && configured > 0 ? Math.min(configured, 3650) : CLOSED_TRADES_LOOKBACK_DAYS;
+}
+
+function buildIncomeKey(item) {
+  return [
+    Number(item?.time) || 0,
+    item?.symbol || "",
+    item?.incomeType || item?.type || "",
+    item?.income ?? item?.pnlValue ?? "",
+    item?.asset || "",
+    item?.info || ""
+  ].join("|");
+}
+
+function readTradeHistory() {
+  return readTradeHistoryPayload().items;
+}
+
+function readTradeHistoryPayload() {
+  try {
+    if (!fs.existsSync(TRADE_HISTORY_FILE)) return { items: [], backfillCursor: 0 };
+    const payload = JSON.parse(fs.readFileSync(TRADE_HISTORY_FILE, "utf8"));
+    return {
+      backfillCursor: Number(payload?.backfillCursor) || 0,
+      items: (Array.isArray(payload?.items) ? payload.items : [])
+      .filter((item) => Number(item?.time))
+      .map((item) => ({
+        ...item,
+        rawKey: item.rawKey || buildIncomeKey(item)
+      }))
+    };
+  } catch (error) {
+    return { items: [], backfillCursor: 0 };
+  }
+}
+
+function writeTradeHistory(items, meta = {}) {
+  if (process.env.VERCEL) return;
+  try {
+    fs.writeFileSync(
+      TRADE_HISTORY_FILE,
+      `${JSON.stringify({ backfillCursor: Number(meta.backfillCursor) || 0, items: items.slice(0, TRADE_HISTORY_LIMIT) }, null, 2)}\n`,
+      "utf8"
+    );
+  } catch (error) {
+    console.warn("write trade history failed:", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function mergeTradeHistory(existingRows, incomingRows) {
+  const map = new Map();
+  for (const row of [...existingRows, ...incomingRows]) {
+    if (!row?.time) continue;
+    const key = row.rawKey || buildIncomeKey(row);
+    map.set(key, { ...row, rawKey: key });
+  }
+  return Array.from(map.values())
+    .sort((a, b) => Number(b.time || 0) - Number(a.time || 0))
+    .slice(0, TRADE_HISTORY_LIMIT);
+}
+
 function readEquityHistory() {
   try {
     if (!fs.existsSync(EQUITY_HISTORY_FILE)) return [];
@@ -331,6 +410,41 @@ function readEquityHistory() {
   } catch (error) {
     return [];
   }
+}
+
+function readClosedTrades() {
+  try {
+    if (!fs.existsSync(CLOSED_TRADES_FILE)) return [];
+    const payload = JSON.parse(fs.readFileSync(CLOSED_TRADES_FILE, "utf8"));
+    return Array.isArray(payload?.items) ? payload.items.filter((item) => item?.symbol && Number(item?.closeTime)) : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeClosedTrades(items) {
+  if (process.env.VERCEL) return;
+  try {
+    fs.writeFileSync(
+      CLOSED_TRADES_FILE,
+      `${JSON.stringify({ items: items.slice(0, CLOSED_TRADES_LIMIT) }, null, 2)}\n`,
+      "utf8"
+    );
+  } catch (error) {
+    console.warn("write closed trades failed:", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function mergeClosedTrades(existingRows, incomingRows) {
+  const map = new Map();
+  for (const row of [...existingRows, ...incomingRows]) {
+    if (!row?.symbol || !row?.closeTime) continue;
+    const key = row.id || `${row.symbol}|${row.openTime}|${row.closeTime}|${row.side}|${row.entryPrice}|${row.exitPrice}`;
+    map.set(key, { ...row, id: key });
+  }
+  return Array.from(map.values())
+    .sort((a, b) => Number(b.closeTime || 0) - Number(a.closeTime || 0))
+    .slice(0, CLOSED_TRADES_LIMIT);
 }
 
 function writeEquityHistory(items) {
@@ -385,6 +499,83 @@ function appendEquityHistoryPoint(point) {
   return normalized;
 }
 
+function buildBackfilledEquityHistory(currentEquity, incomeRows, now) {
+  const equity = toNumber(currentEquity);
+  if (!Number.isFinite(equity) || equity <= 0) return [];
+
+  const rows = (Array.isArray(incomeRows) ? incomeRows : [])
+    .filter((row) => Number(row?.time) && Number.isFinite(Number(row?.pnlValue)))
+    .sort((a, b) => Number(a.time) - Number(b.time));
+  if (!rows.length) {
+    return [{ time: now, equity, returnRate: 0, profit: 0 }];
+  }
+
+  const totalFlow = rows.reduce((sum, row) => sum + toNumber(row.pnlValue), 0);
+  const baseEquity = equity - totalFlow;
+  let runningEquity = baseEquity;
+  const points = [{
+    time: Number(rows[0].time) - 1,
+    equity: runningEquity,
+    returnRate: 0,
+    profit: 0
+  }];
+
+  for (const row of rows) {
+    runningEquity += toNumber(row.pnlValue);
+    if (!Number.isFinite(runningEquity) || runningEquity <= 0) continue;
+    points.push({
+      time: Number(row.time),
+      equity: runningEquity,
+      returnRate: baseEquity ? ((runningEquity - baseEquity) / baseEquity) * 100 : 0,
+      profit: runningEquity - baseEquity
+    });
+  }
+
+  points.push({
+    time: now,
+    equity,
+    returnRate: baseEquity ? ((equity - baseEquity) / baseEquity) * 100 : 0,
+    profit: equity - baseEquity
+  });
+
+  const deduped = [];
+  for (const point of points.sort((a, b) => a.time - b.time)) {
+    const last = deduped[deduped.length - 1];
+    if (last && Math.abs(last.time - point.time) < 1000) {
+      deduped[deduped.length - 1] = point;
+    } else {
+      deduped.push(point);
+    }
+  }
+
+  return deduped.slice(-EQUITY_HISTORY_LIMIT);
+}
+
+function mergeEquityHistories(sampledHistory, backfilledHistory) {
+  const map = new Map();
+  for (const point of [...(backfilledHistory || []), ...(sampledHistory || [])]) {
+    const time = Number(point?.time) || 0;
+    const equity = toNumber(point?.equity);
+    if (!time || !Number.isFinite(equity) || equity <= 0) continue;
+    map.set(String(time), {
+      time,
+      equity,
+      returnRate: toNumber(point.returnRate),
+      profit: toNumber(point.profit)
+    });
+  }
+
+  const merged = Array.from(map.values()).sort((a, b) => a.time - b.time).slice(-EQUITY_HISTORY_LIMIT);
+  const baseEquity = toNumber(merged[0]?.equity, 0);
+  if (!baseEquity) return merged;
+
+  return merged.map((point) => ({
+    ...point,
+    returnRate: ((point.equity - baseEquity) / baseEquity) * 100,
+    profit: point.equity - baseEquity
+  }));
+}
+
 function buildPreviewEquityHistory(now) {
   const start = now - 7 * 60 * 60 * 1000;
   const values = [12720, 12764, 12738, 12802, 12791, 12828, 12846.32];
@@ -422,6 +613,7 @@ function normalizePosition(position) {
 function normalizeIncome(item) {
   const income = toNumber(item.income);
   return {
+    rawKey: buildIncomeKey(item),
     time: Number(item.time) || 0,
     symbol: item.symbol || "--",
     type: item.incomeType || "--",
@@ -431,6 +623,182 @@ function normalizeIncome(item) {
     pnl: `${formatSignedAmount(income)} USDT`,
     pnlValue: income
   };
+}
+
+async function loadIncomeWindow(startTime, endTime) {
+  const rows = await signedFapiRequest("/fapi/v1/income", {
+    startTime: String(startTime),
+    endTime: String(endTime),
+    limit: "1000"
+  });
+
+  return (Array.isArray(rows) ? rows : [])
+    .filter((item) => Math.abs(toNumber(item.income)) > 0)
+    .map(normalizeIncome);
+}
+
+async function backfillOneIncomeHistoryPage(existingRows, now, cursor = 0) {
+  const lookbackMs = getHistoryLookbackDays() * 24 * 60 * 60 * 1000;
+  const pageMs = TRADE_HISTORY_PAGE_DAYS * 24 * 60 * 60 * 1000;
+  const oldestAllowed = Math.max(0, now - lookbackMs);
+  const endTime = cursor ? Math.min(now, cursor - 1) : now;
+  const startTime = Math.max(oldestAllowed, endTime - pageMs + 1);
+
+  if (endTime <= oldestAllowed || startTime >= endTime) {
+    return { items: existingRows, backfillCursor: oldestAllowed };
+  }
+
+  const rows = await loadIncomeWindow(startTime, endTime);
+  return {
+    items: mergeTradeHistory(existingRows, rows),
+    backfillCursor: startTime
+  };
+}
+
+async function syncIncomeHistory(recentRows, now) {
+  const payload = readTradeHistoryPayload();
+  const seeded = mergeTradeHistory(payload.items, recentRows);
+  const latestTime = seeded.length ? Math.max(...seeded.map((row) => Number(row.time) || 0)) : now;
+  const overlapStart = Math.max(0, latestTime - 24 * 60 * 60 * 1000);
+  const incrementalRows = await loadIncomeWindow(overlapStart, now);
+  const merged = mergeTradeHistory(seeded, incrementalRows);
+  const backfilled = await backfillOneIncomeHistoryPage(merged, now, payload.backfillCursor);
+  writeTradeHistory(backfilled.items, { backfillCursor: backfilled.backfillCursor });
+  return backfilled.items;
+}
+
+async function loadUserTrades(symbol, startTime, endTime) {
+  const pageMs = CLOSED_TRADES_PAGE_DAYS * 24 * 60 * 60 * 1000;
+  const allRows = [];
+  let cursor = startTime;
+
+  while (cursor <= endTime) {
+    const pageEnd = Math.min(endTime, cursor + pageMs - 1);
+    const rows = await signedFapiRequest("/fapi/v1/userTrades", {
+      symbol,
+      startTime: String(cursor),
+      endTime: String(pageEnd),
+      limit: "1000"
+    });
+    allRows.push(...(Array.isArray(rows) ? rows : []));
+    cursor = pageEnd + 1;
+  }
+
+  return allRows.map((trade) => ({
+    id: String(trade.id || trade.orderId || `${trade.time}-${trade.price}-${trade.qty}`),
+    orderId: String(trade.orderId || ""),
+    symbol: trade.symbol || symbol,
+    side: trade.side || "",
+    positionSide: trade.positionSide || "BOTH",
+    time: Number(trade.time) || 0,
+    price: toNumber(trade.price),
+    qty: toNumber(trade.qty),
+    realizedPnl: toNumber(trade.realizedPnl),
+    commission: Math.abs(toNumber(trade.commission)),
+    buyer: Boolean(trade.buyer)
+  })).filter((trade) => trade.time && trade.price && trade.qty);
+}
+
+function getFundingForWindow(incomeRows, symbol, startTime, endTime) {
+  return incomeRows
+    .filter((row) => row.symbol === symbol && row.type === "FUNDING_FEE" && row.time >= startTime && row.time <= endTime)
+    .reduce((sum, row) => sum + toNumber(row.pnlValue), 0);
+}
+
+function reconstructClosedTradesForSymbol(symbol, trades, incomeRows) {
+  const records = [];
+  const position = {
+    qty: 0,
+    avgEntry: 0,
+    openTime: 0,
+    entryFee: 0
+  };
+
+  for (const trade of trades.sort((a, b) => a.time - b.time)) {
+    const signedQty = trade.side === "BUY" ? trade.qty : -trade.qty;
+    if (!signedQty) continue;
+
+    if (!position.qty || Math.sign(position.qty) === Math.sign(signedQty)) {
+      const currentAbs = Math.abs(position.qty);
+      const nextAbs = currentAbs + Math.abs(signedQty);
+      position.avgEntry = nextAbs ? ((position.avgEntry * currentAbs) + (trade.price * Math.abs(signedQty))) / nextAbs : trade.price;
+      position.qty += signedQty;
+      position.openTime = position.openTime || trade.time;
+      position.entryFee += trade.commission;
+      continue;
+    }
+
+    const beforeAbs = Math.abs(position.qty);
+    const closeAbs = Math.min(beforeAbs, Math.abs(signedQty));
+    const closeRatio = beforeAbs ? closeAbs / beforeAbs : 1;
+    const entryFee = position.entryFee * closeRatio;
+    const closeFee = trade.commission;
+    const funding = getFundingForWindow(incomeRows, symbol, position.openTime, trade.time);
+    const realizedPnl = trade.realizedPnl;
+    const totalPnl = realizedPnl + funding - entryFee - closeFee;
+    const side = position.qty > 0 ? "多" : "空";
+
+    records.push({
+      id: `${symbol}|${position.openTime}|${trade.time}|${side}|${trade.id}`,
+      openTime: position.openTime,
+      closeTime: trade.time,
+      symbol,
+      entryPrice: position.avgEntry,
+      exitPrice: trade.price,
+      side,
+      realizedPnl,
+      commission: entryFee + closeFee,
+      funding,
+      pnlValue: totalPnl,
+      pnl: `${formatSignedAmount(totalPnl)} USDT`
+    });
+
+    position.qty += signedQty;
+    position.entryFee = Math.max(0, position.entryFee - entryFee);
+
+    if (Math.abs(position.qty) < 1e-12) {
+      position.qty = 0;
+      position.avgEntry = 0;
+      position.openTime = 0;
+      position.entryFee = 0;
+    } else if (Math.sign(position.qty) === Math.sign(signedQty) && Math.abs(signedQty) > closeAbs) {
+      position.avgEntry = trade.price;
+      position.openTime = trade.time;
+      position.entryFee = trade.commission * ((Math.abs(signedQty) - closeAbs) / Math.abs(signedQty));
+    }
+  }
+
+  return records;
+}
+
+async function loadClosedTrades(incomeRows, now) {
+  const existing = readClosedTrades();
+  if (existing.length) {
+    return existing;
+  }
+
+  const startTime = Math.max(0, now - getClosedTradesLookbackDays() * 24 * 60 * 60 * 1000);
+  const symbols = Array.from(
+    new Set(
+      incomeRows
+        .filter((row) => /^[A-Z0-9]+USDT$/.test(row.symbol || "") && ["REALIZED_PNL", "COMMISSION", "FUNDING_FEE"].includes(row.type))
+        .map((row) => row.symbol)
+    )
+  ).slice(0, CLOSED_TRADES_SYMBOL_LIMIT);
+
+  const reconstructed = [];
+  for (const symbol of symbols) {
+    try {
+      const trades = await loadUserTrades(symbol, startTime, now);
+      reconstructed.push(...reconstructClosedTradesForSymbol(symbol, trades, incomeRows));
+    } catch (error) {
+      console.warn(`load user trades failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const merged = mergeClosedTrades(existing, reconstructed);
+  writeClosedTrades(merged);
+  return merged;
 }
 
 function getPreviewHistory(now) {
@@ -525,14 +893,29 @@ function getPreviewAccountPayload(error) {
         pnlValue: -24.78
       }
     ],
-    history: getPreviewHistory(now)
+    history: getPreviewHistory(now),
+    closedTrades: [
+      {
+        openTime: now - 74 * 60 * 1000,
+        closeTime: now - 18 * 60 * 1000,
+        symbol: "BTCUSDT",
+        entryPrice: 68420.5,
+        exitPrice: 68931.2,
+        side: "多",
+        pnl: "+42.80 USDT",
+        pnlValue: 42.8,
+        realizedPnl: 48.12,
+        commission: 4.14,
+        funding: -1.18
+      }
+    ]
   };
 }
 
 async function buildBinanceAccountPayload() {
   const [account, income] = await Promise.all([
     loadFuturesAccount(),
-    signedFapiRequest("/fapi/v1/income", { limit: "50" })
+    signedFapiRequest("/fapi/v1/income", { limit: "1000" })
   ]);
 
   const assets = Array.isArray(account.assets) ? account.assets : [];
@@ -541,11 +924,14 @@ async function buildBinanceAccountPayload() {
     .filter((position) => Math.abs(toNumber(position.positionAmt)) > 0)
     .map(normalizePosition)
     .sort((a, b) => Math.abs(b.pnlValue) - Math.abs(a.pnlValue));
-  const incomeRows = (Array.isArray(income) ? income : [])
+  const recentIncomeRows = (Array.isArray(income) ? income : [])
     .filter((item) => Math.abs(toNumber(item.income)) > 0)
     .map(normalizeIncome)
     .sort((a, b) => b.time - a.time)
-    .slice(0, 30);
+    .slice(0, 1000);
+  const now = Date.now();
+  const incomeRows = await syncIncomeHistory(recentIncomeRows, now);
+  const closedTrades = await loadClosedTrades(incomeRows, now);
 
   const totalWalletBalance = toNumber(account.totalWalletBalance || usdt.walletBalance);
   const totalMarginBalance = toNumber(account.totalMarginBalance || usdt.marginBalance);
@@ -555,14 +941,16 @@ async function buildBinanceAccountPayload() {
     .filter((row) => new Date(row.time).toDateString() === new Date().toDateString())
     .reduce((sum, row) => sum + row.pnlValue, 0);
 
-  const updatedAt = Date.now();
+  const updatedAt = now;
   const currentEquity = totalMarginBalance || totalWalletBalance;
-  const equityHistory = appendEquityHistoryPoint({
+  const sampledEquityHistory = appendEquityHistoryPoint({
     time: updatedAt,
     equity: currentEquity,
     returnRate: totalWalletBalance ? (totalUnrealizedProfit / totalWalletBalance) * 100 : 0,
     profit: totalUnrealizedProfit
   });
+  const backfilledEquityHistory = buildBackfilledEquityHistory(currentEquity, incomeRows, updatedAt);
+  const equityHistory = mergeEquityHistories(sampledEquityHistory, backfilledEquityHistory);
 
   return {
     source: "Binance Futures",
@@ -584,7 +972,8 @@ async function buildBinanceAccountPayload() {
     },
     equityHistory,
     positions,
-    history: incomeRows
+    history: incomeRows,
+    closedTrades
   };
 }
 

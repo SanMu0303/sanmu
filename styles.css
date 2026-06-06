@@ -336,6 +336,76 @@ button {
   gap: 8px;
 }
 
+.video-category-manager {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-soft);
+  padding: 12px;
+}
+
+.video-category-manager .panel-header {
+  min-height: 0;
+  margin-bottom: 10px;
+}
+
+.video-category-create-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px;
+  gap: 8px;
+  align-items: end;
+}
+
+.video-category-manage-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.video-category-manage-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.video-category-manage-item span {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-category-manage-item strong {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.video-category-manage-item button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red) 12%, var(--panel));
+  color: var(--red);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
+.video-category-manage-item button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .video-list {
   display: grid;
   gap: 8px;
@@ -1002,7 +1072,8 @@ button {
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   grid-template-areas:
     "equity equity"
-    "history positions";
+    "history positions"
+    "closed closed";
   gap: 10px;
 }
 
@@ -1023,8 +1094,44 @@ button {
   grid-area: positions;
 }
 
+.live-closed-trades-panel {
+  grid-area: closed;
+}
+
 .live-panel .panel-header {
   min-height: 58px;
+}
+
+.live-equity-panel .panel-header {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 12px;
+  justify-content: normal;
+}
+
+.live-equity-panel .live-panel-status {
+  justify-self: end;
+}
+
+.live-chart-summary-bar {
+  justify-self: start;
+  align-self: center;
+  max-width: min(520px, 38vw);
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  padding: 8px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-panel-status {
@@ -1034,6 +1141,17 @@ button {
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
+}
+
+.live-history-status {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  padding: 7px 10px;
+  white-space: nowrap;
 }
 
 .live-equity-body {
@@ -1077,11 +1195,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  background:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px),
-    var(--panel-soft);
-  background-size: 100% 25%, 16.666% 100%;
+  background: var(--panel-soft);
 }
 
 .live-chart-tabs {
@@ -1129,7 +1243,7 @@ button {
 
 .live-chart-canvas {
   position: absolute;
-  inset: 54px 10px 10px;
+  inset: 46px 0 0;
   z-index: 1;
 }
 
@@ -1138,10 +1252,16 @@ button {
   height: 100%;
   overflow: visible;
   color: var(--accent);
+  display: block;
 }
 
 .live-chart-grid {
   stroke: color-mix(in srgb, var(--border) 72%, transparent);
+  stroke-width: 1;
+}
+
+.live-chart-time-grid {
+  stroke: color-mix(in srgb, var(--border) 58%, transparent);
   stroke-width: 1;
 }
 
@@ -1153,17 +1273,47 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.live-chart-axis {
+  opacity: 0.62;
+}
+
 .live-chart-area {
-  fill: color-mix(in srgb, currentColor 16%, transparent);
+  fill: url("#liveChartFill");
 }
 
 .live-chart-path {
   fill: none;
   stroke: currentColor;
-  stroke-width: 4;
+  stroke-width: 3.2;
   stroke-linecap: round;
   stroke-linejoin: round;
   filter: drop-shadow(0 0 12px color-mix(in srgb, currentColor 42%, transparent));
+}
+
+.live-chart-summary rect {
+  fill: color-mix(in srgb, var(--panel) 88%, transparent);
+  stroke: var(--border);
+  stroke-width: 1;
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.12));
+}
+
+.live-chart-summary text:first-of-type {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.live-chart-summary text:last-of-type {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-chart-glow {
+  opacity: 0.22;
+  stroke-width: 13;
+  filter: blur(4px);
 }
 
 .live-chart-dot {
@@ -1177,6 +1327,47 @@ button {
   font-size: 13px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+.live-chart-extreme line {
+  stroke: color-mix(in srgb, var(--text) 34%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.live-chart-extreme circle {
+  fill: var(--panel);
+  stroke-width: 4;
+}
+
+.live-chart-extreme rect {
+  fill: color-mix(in srgb, var(--panel) 88%, transparent);
+  stroke: var(--border);
+  stroke-width: 1;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.16));
+}
+
+.live-chart-extreme text {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-chart-high {
+  color: var(--accent);
+}
+
+.live-chart-high circle {
+  stroke: var(--accent);
+}
+
+.live-chart-low {
+  color: var(--red);
+}
+
+.live-chart-low circle {
+  stroke: var(--red);
 }
 
 .live-chart-down {
@@ -1195,14 +1386,8 @@ button {
 }
 
 .live-empty-state.has-chart {
-  top: auto;
-  right: auto;
-  bottom: 14px;
-  left: 18px;
-  z-index: 2;
-  display: block;
+  display: none;
   padding: 0;
-  text-align: left;
   pointer-events: none;
 }
 
@@ -1251,11 +1436,31 @@ button {
 }
 
 .live-history-table .live-table-row {
-  grid-template-columns: 1.05fr 0.8fr 0.55fr 0.8fr 0.8fr 0.75fr;
+  grid-template-columns: 1.05fr 0.78fr 0.9fr 0.55fr 0.92fr 0.82fr;
 }
 
 .live-position-table .live-table-row {
   grid-template-columns: 0.8fr 0.55fr 0.55fr 0.8fr 0.8fr 0.75fr;
+}
+
+.live-closed-trades-table .live-table-row {
+  grid-template-columns: 1fr 0.72fr 0.8fr 0.45fr 0.8fr 1.25fr;
+}
+
+.live-closed-trades-table .live-table-row > div:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.live-closed-trades-table .live-table-row > div:last-child strong {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.live-closed-trades-table .live-table-row > div:last-child span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .live-table-head {
@@ -2814,6 +3019,12 @@ body.theme-dark .alert-red {
   }
 
   .video-github-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .video-category-create-row,
+  .video-category-manage-list,
+  .video-category-manage-item {
     grid-template-columns: 1fr;
   }
 

@@ -11,6 +11,9 @@
     titleInput: document.getElementById("videoTitleInput"),
     categorySelect: document.getElementById("videoCategorySelect"),
     newCategoryInput: document.getElementById("videoNewCategoryInput"),
+    managedCategoryInput: document.getElementById("videoManagedCategoryInput"),
+    addCategoryButton: document.getElementById("addVideoCategoryButton"),
+    categoryManageList: document.getElementById("videoCategoryManageList"),
     githubTokenInput: document.getElementById("videoGithubTokenInput"),
     githubRepoInput: document.getElementById("videoGithubRepoInput"),
     githubBranchInput: document.getElementById("videoGithubBranchInput"),
@@ -34,32 +37,43 @@
 
   const isAdmin = document.body?.dataset.videoAdmin === "true";
   const isCategoryPage = document.body?.dataset.videoCategoryPage === "true";
+  let categories = [...DEFAULT_CATEGORIES];
   let videos = [];
   let selectedId = "";
 
-  function loadCachedVideos() {
+  function loadCachedStore() {
     try {
       const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "[]");
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return normalizeStore({ items: parsed });
+      if (parsed && typeof parsed === "object") return normalizeStore(parsed);
     } catch (error) {
       console.warn("failed to load video library", error);
     }
-    return DEFAULT_VIDEOS;
+    return normalizeStore({ categories: DEFAULT_CATEGORIES, items: DEFAULT_VIDEOS });
   }
 
-  function saveCachedVideos() {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
+  function saveCachedStore() {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ categories, items: videos }));
   }
 
   function normalizeStore(payload) {
+    const items = (Array.isArray(payload?.items) ? payload.items : [])
+      .filter((video) => video?.id)
+      .map((video) => ({
+        ...video,
+        category: String(video.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY
+      }))
+      .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    const managedCategories = Array.isArray(payload?.categories) ? payload.categories : DEFAULT_CATEGORIES;
+    const categoryItems = Array.from(new Set([
+      DEFAULT_CATEGORY,
+      ...managedCategories,
+      ...items.map(getVideoCategory)
+    ].map((category) => String(category || "").trim()).filter(Boolean)));
+
     return {
-      items: (Array.isArray(payload?.items) ? payload.items : [])
-        .filter((video) => video?.id)
-        .map((video) => ({
-          ...video,
-          category: String(video.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY
-        }))
-        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+      categories: categoryItems,
+      items
     };
   }
 
@@ -76,6 +90,11 @@
   function getVideosEndpoint(id = "") {
     const url = `${getApiOrigin()}/api/videos`;
     return id ? `${url}?id=${encodeURIComponent(id)}` : url;
+  }
+
+  function getCategoriesEndpoint(category = "") {
+    const url = `${getApiOrigin()}/api/video-categories`;
+    return category ? `${url}?category=${encodeURIComponent(category)}` : url;
   }
 
   function getGithubClientConfig() {
@@ -195,19 +214,25 @@
   async function loadVideos() {
     try {
       const payload = await requestVideoStore();
-      videos = Array.isArray(payload.items) ? payload.items : [];
+      const store = normalizeStore(payload);
+      categories = store.categories;
+      videos = store.items;
       selectedId = videos[0]?.id || "";
-      saveCachedVideos();
+      saveCachedStore();
       setStatus(isAdmin ? "已读取长期保存的视频列表。" : "");
     } catch (error) {
       try {
         const payload = isAdmin && getGithubClientConfig().repo ? await fetchGithubClientFile().then((result) => result.store) : await fetchStaticVideoStore();
-        videos = Array.isArray(payload.items) ? payload.items : [];
+        const store = normalizeStore(payload);
+        categories = store.categories;
+        videos = store.items;
         selectedId = videos[0]?.id || "";
-        saveCachedVideos();
+        saveCachedStore();
         setStatus(isAdmin ? "已从 GitHub/静态文件读取视频列表。" : "");
       } catch (fallbackError) {
-        videos = loadCachedVideos();
+        const store = loadCachedStore();
+        categories = store.categories;
+        videos = store.items;
         selectedId = videos[0]?.id || "";
         setStatus("视频 API 暂不可用，正在显示本机缓存。", true);
       }
@@ -274,7 +299,7 @@
   }
 
   function getCategories() {
-    return Array.from(new Set([...DEFAULT_CATEGORIES, ...videos.map(getVideoCategory)])).filter(Boolean);
+    return Array.from(new Set([DEFAULT_CATEGORY, ...categories, ...videos.map(getVideoCategory)])).filter(Boolean);
   }
 
   function getCategoryCounts() {
@@ -357,8 +382,9 @@
         });
       }
       videos = Array.isArray(payload.items) ? payload.items : [video, ...videos];
+      categories = normalizeStore(payload).categories;
       selectedId = id;
-      saveCachedVideos();
+      saveCachedStore();
       if (els.urlInput) els.urlInput.value = "";
       if (els.titleInput) els.titleInput.value = "";
       if (els.newCategoryInput) els.newCategoryInput.value = "";
@@ -386,9 +412,85 @@
         });
       }
       videos = Array.isArray(payload.items) ? payload.items : videos.filter((video) => video.id !== id);
+      categories = normalizeStore(payload).categories;
       if (selectedId === id) selectedId = videos[0]?.id || "";
-      saveCachedVideos();
+      saveCachedStore();
       setStatus("已从长期视频列表删除。");
+      render();
+    } catch (error) {
+      setStatus(`删除失败：${error.message}`, true);
+    }
+  }
+
+  async function addCategory() {
+    const name = els.managedCategoryInput?.value.trim();
+    if (!name) {
+      setStatus("请输入要新增的视频类型。", true);
+      return;
+    }
+
+    if (getCategories().includes(name)) {
+      setStatus("该视频类型已经存在。");
+      if (els.managedCategoryInput) els.managedCategoryInput.value = "";
+      render();
+      return;
+    }
+
+    try {
+      setStatus("正在新增视频类型...");
+      let payload;
+      try {
+        payload = await requestVideoStore(getCategoriesEndpoint(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: name })
+        });
+      } catch (apiError) {
+        saveGithubClientConfig();
+        const githubStore = await fetchGithubClientFile();
+        payload = await saveGithubClientStore({
+          ...githubStore.store,
+          categories: Array.from(new Set([...(githubStore.store.categories || DEFAULT_CATEGORIES), name]))
+        });
+      }
+      const store = normalizeStore(payload);
+      categories = store.categories;
+      videos = store.items;
+      saveCachedStore();
+      if (els.managedCategoryInput) els.managedCategoryInput.value = "";
+      setStatus("已新增视频类型。");
+      render();
+    } catch (error) {
+      setStatus(`新增失败：${error.message}`, true);
+    }
+  }
+
+  async function deleteCategory(name) {
+    if (!name || name === DEFAULT_CATEGORY) {
+      setStatus("默认视频类型不能删除。", true);
+      return;
+    }
+
+    try {
+      setStatus("正在删除视频类型...");
+      let payload;
+      try {
+        payload = await requestVideoStore(getCategoriesEndpoint(name), {
+          method: "DELETE"
+        });
+      } catch (apiError) {
+        saveGithubClientConfig();
+        const githubStore = await fetchGithubClientFile();
+        payload = await saveGithubClientStore({
+          categories: (githubStore.store.categories || DEFAULT_CATEGORIES).filter((category) => category !== name),
+          items: githubStore.store.items.map((video) => video.category === name ? { ...video, category: DEFAULT_CATEGORY } : video)
+        });
+      }
+      const store = normalizeStore(payload);
+      categories = store.categories;
+      videos = store.items;
+      saveCachedStore();
+      setStatus("已删除视频类型，相关视频已归入默认类型。");
       render();
     } catch (error) {
       setStatus(`删除失败：${error.message}`, true);
@@ -457,6 +559,7 @@
     renderRecent();
     renderTypes();
     renderCategorySelect();
+    renderCategoryManager();
   }
 
   function renderCategorySelect() {
@@ -485,6 +588,20 @@
     `;
   }
 
+  function renderCategoryManager() {
+    if (!els.categoryManageList) return;
+    const counts = getCategoryCounts();
+    els.categoryManageList.innerHTML = getCategories()
+      .map((category) => `
+        <div class="video-category-manage-item">
+          <span>${escapeHtml(category)}</span>
+          <strong>${counts[category] || 0} 个视频</strong>
+          <button type="button" data-category-action="delete" data-category-name="${escapeHtml(category)}"${category === DEFAULT_CATEGORY ? " disabled" : ""}>删除</button>
+        </div>
+      `)
+      .join("");
+  }
+
   function renderRecent() {
     if (!els.recentList) return;
 
@@ -508,6 +625,7 @@
   }
 
   els.addButton?.addEventListener("click", addVideo);
+  els.addCategoryButton?.addEventListener("click", addCategory);
   if (els.githubTokenInput) els.githubTokenInput.value = window.localStorage.getItem("sanmu.video.githubToken") || "";
   if (els.githubRepoInput) els.githubRepoInput.value = window.localStorage.getItem("sanmu.video.githubRepo") || "";
   if (els.githubBranchInput) els.githubBranchInput.value = window.localStorage.getItem("sanmu.video.githubBranch") || "main";
@@ -517,6 +635,14 @@
   });
   els.titleInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") addVideo();
+  });
+  els.managedCategoryInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") addCategory();
+  });
+  els.categoryManageList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-category-action]");
+    if (!button || button.disabled) return;
+    if (button.dataset.categoryAction === "delete") deleteCategory(button.dataset.categoryName || "");
   });
   els.openSelectedButton?.addEventListener("click", () => openVideo(videos.find((video) => video.id === selectedId)));
   els.list?.addEventListener("click", (event) => {

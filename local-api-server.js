@@ -8,7 +8,7 @@ const { loadBlockBeatsPayload } = require("./blockbeats-core");
 const { loadBinanceProxyPayload } = require("./binance-proxy-core");
 const { loadBinanceAccountPayload } = require("./binance-account-core");
 const { loadSectorFeedPayload } = require("./sector-feed-core");
-const { addVideo, deleteVideo, listVideos } = require("./videos-core");
+const { addCategory, addVideo, deleteCategory, deleteVideo, listVideos } = require("./videos-core");
 
 const PORT = 8787;
 
@@ -55,6 +55,36 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("Cache-Control", "no-store");
       res.end(JSON.stringify({
         error: "video api failed",
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/video-categories") {
+    try {
+      let payload;
+      if (req.method === "GET") {
+        payload = await listVideos();
+      } else if (req.method === "POST") {
+        const body = await readJsonBody();
+        payload = await addCategory(body.category || body.name || "");
+      } else if (req.method === "DELETE") {
+        payload = await deleteCategory(url.searchParams.get("category") || "");
+      } else {
+        res.statusCode = 405;
+        payload = { error: "method not allowed" };
+      }
+
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = error.statusCode || 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({
+        error: "video category api failed",
         detail: error instanceof Error ? error.message : String(error)
       }));
     }

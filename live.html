@@ -10,10 +10,10 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <script src="./theme.js?v=20260606-live-chart-2" defer></script>
-    <link rel="stylesheet" href="./styles.css?v=20260606-live-chart-2" />
-    <script src="./config.js?v=20260606-live-chart-2" defer></script>
-    <script src="./live.js?v=20260606-live-chart-2" defer></script>
+    <script src="./theme.js?v=20260606-chart-grid-redraw-2" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260606-chart-grid-redraw-2" />
+    <script src="./config.js?v=20260606-chart-grid-redraw-2" defer></script>
+    <script src="./live.js?v=20260606-chart-grid-redraw-2" defer></script>
   </head>
   <body class="theme-dark">
     <div class="page-shell">
@@ -43,6 +43,7 @@
               <p class="eyebrow">ACCOUNT EQUITY</p>
               <h2>资金曲线</h2>
             </div>
+            <div class="live-chart-summary-bar" id="liveChartSummaryBar">等待资金曲线数据</div>
             <div class="live-panel-status" id="liveAccountStatus">
               <span class="feed-health-dot"></span>
               <span>等待 API</span>
@@ -51,7 +52,7 @@
           <div class="panel-body live-equity-body" id="liveEquityCurve">
             <div class="live-summary-grid">
               <div class="live-metric-card">
-                <span>总权益</span>
+                <span>总资金权益</span>
                 <strong id="liveTotalEquity">-- USDT</strong>
               </div>
               <div class="live-metric-card">
@@ -85,18 +86,19 @@
         <section class="board-panel live-panel live-history-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">TRADE HISTORY</p>
-              <h2>历史交易记录</h2>
+              <p class="eyebrow">FUND FLOW</p>
+              <h2>资金流水</h2>
             </div>
+            <span class="live-history-status" id="liveHistoryStatus">等待追溯</span>
           </div>
           <div class="panel-body live-table-wrap" id="liveTradeHistory">
             <div class="live-table live-history-table">
               <div class="live-table-row live-table-head">
                 <div>时间</div>
                 <div>标的</div>
+                <div>流水类型</div>
                 <div>方向</div>
-                <div>开仓</div>
-                <div>平仓</div>
+                <div>总资金权益</div>
                 <div>收益</div>
               </div>
               <div class="live-empty-row">正在读取币安账户流水...</div>
@@ -122,6 +124,29 @@
                 <div>浮盈亏</div>
               </div>
               <div class="live-empty-row">正在读取币安当前持仓...</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="board-panel live-panel live-closed-trades-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">CLOSED TRADES</p>
+              <h2>历史交易</h2>
+            </div>
+            <span class="live-history-status" id="liveClosedTradeStatus">等待重建</span>
+          </div>
+          <div class="panel-body live-table-wrap">
+            <div class="live-table live-closed-trades-table">
+              <div class="live-table-row live-table-head">
+                <div>开仓时间</div>
+                <div>标的</div>
+                <div>入场价格</div>
+                <div>方向</div>
+                <div>离场价格</div>
+                <div>收益</div>
+              </div>
+              <div class="live-empty-row">正在根据成交明细重建历史交易...</div>
             </div>
           </div>
         </section>

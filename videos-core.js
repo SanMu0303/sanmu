@@ -10,6 +10,7 @@ const LOCAL_ENV_FILES = [
 ];
 const DEFAULT_FILE_PATH = "videos.json";
 const DEFAULT_VIDEO_CATEGORY = "视频课程";
+const DEFAULT_VIDEO_CATEGORIES = ["视频课程", "技术指标", "形态分析", "交易策略", "技术模型"];
 
 function isReadonlyServerlessRuntime() {
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || __dirname.startsWith("/var/task"));
@@ -59,8 +60,16 @@ function normalizeStore(payload) {
     .map(normalizeVideo)
     .filter(Boolean)
     .sort((a, b) => b.createdAt - a.createdAt);
+  const managedCategories = Array.isArray(payload?.categories) ? payload.categories : DEFAULT_VIDEO_CATEGORIES;
+  const categories = Array.from(
+    new Set([
+      DEFAULT_VIDEO_CATEGORY,
+      ...managedCategories,
+      ...items.map((item) => item.category)
+    ].map((category) => String(category || "").trim()).filter(Boolean))
+  );
 
-  return { items };
+  return { categories, items };
 }
 
 function getGithubConfig() {
@@ -213,17 +222,49 @@ async function addVideo(video) {
     return store;
   }
 
-  return writeVideoStore({ items: [normalized, ...store.items] });
+  return writeVideoStore({ ...store, items: [normalized, ...store.items] });
 }
 
 async function deleteVideo(id) {
   const store = await readVideoStore();
-  return writeVideoStore({ items: store.items.filter((item) => item.id !== id) });
+  return writeVideoStore({ ...store, items: store.items.filter((item) => item.id !== id) });
+}
+
+async function addCategory(category) {
+  const name = String(category || "").trim();
+  if (!name) {
+    const error = new Error("invalid category name");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const store = await readVideoStore();
+  return writeVideoStore({
+    ...store,
+    categories: Array.from(new Set([...(store.categories || DEFAULT_VIDEO_CATEGORIES), name]))
+  });
+}
+
+async function deleteCategory(category) {
+  const name = String(category || "").trim();
+  if (!name || name === DEFAULT_VIDEO_CATEGORY) {
+    const error = new Error("default category cannot be deleted");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const store = await readVideoStore();
+  return writeVideoStore({
+    categories: (store.categories || DEFAULT_VIDEO_CATEGORIES).filter((item) => item !== name),
+    items: store.items.map((item) => (item.category === name ? { ...item, category: DEFAULT_VIDEO_CATEGORY } : item))
+  });
 }
 
 module.exports = {
+  addCategory,
   addVideo,
   assertAdminToken,
+  deleteCategory,
   deleteVideo,
   listVideos
 };
