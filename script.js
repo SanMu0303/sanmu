@@ -1359,7 +1359,7 @@ function renderTradingViewChart(row) {
     locale: "zh_CN",
     allow_symbol_change: true,
     calendar: false,
-    details: true,
+    details: false,
     hide_side_toolbar: false,
     hide_top_toolbar: false,
     hotlist: false,
