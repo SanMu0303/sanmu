@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260609-market-grid-align-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260609-binance-market-list-2" />
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   </head>
   <body>
@@ -44,28 +44,29 @@
       </section>
 
       <main class="dashboard-grid">
-        <section class="board-panel" id="heatPanel">
-          <div class="panel-header">
-            <h2 id="heatTitle">币安合约综合热度榜前10</h2>
-            <div class="movers-toggle heat-mode-toggle" aria-label="切换热度模式">
-              <button class="movers-toggle-button active" type="button" data-heat-mode="default">默认</button>
-              <button class="movers-toggle-button" type="button" data-heat-mode="combined">综合</button>
-              <button class="movers-toggle-button" type="button" data-heat-mode="contracts">合约</button>
-              <button class="movers-toggle-button" type="button" data-heat-mode="onchain">链上</button>
-            </div>
-          </div>
-          <div class="panel-body" id="heatTable"></div>
-        </section>
+        <section class="board-panel market-overview-panel">
+          <div class="market-overview-grid">
+            <section class="market-subpanel" id="heatPanel">
+              <div class="panel-header">
+                <h2 id="heatTitle">币安合约综合热度榜前10</h2>
+                <div class="movers-toggle heat-mode-toggle" aria-label="切换热度模式">
+                  <button class="movers-toggle-button active" type="button" data-heat-mode="default">默认</button>
+                  <button class="movers-toggle-button" type="button" data-heat-mode="combined">综合</button>
+                  <button class="movers-toggle-button" type="button" data-heat-mode="contracts">合约</button>
+                  <button class="movers-toggle-button" type="button" data-heat-mode="onchain">链上</button>
+                </div>
+              </div>
+              <div class="panel-body" id="heatTable"></div>
+            </section>
 
-        <section class="board-panel" id="chainPanel">
-          <div class="panel-header">
-            <h2>TradingView K线窗口</h2>
-          </div>
-          <div class="panel-body tradingview-panel" id="tradingviewPanel"></div>
-        </section>
+            <section class="market-subpanel" id="chainPanel">
+              <div class="panel-header">
+                <h2>TradingView K线窗口</h2>
+              </div>
+              <div class="panel-body tradingview-panel" id="tradingviewPanel"></div>
+            </section>
 
-        <section class="right-rail">
-          <aside class="side-panel">
+            <aside class="market-subpanel side-panel">
             <div class="sub-panel">
               <div class="panel-header">
                 <h2>价格异动</h2>
@@ -83,7 +84,9 @@
                 <div id="volumeAlertList"></div>
               </div>
             </div>
-          </aside>
+            </aside>
+          </div>
+        </section>
 
           <section class="board-panel macro-calendar-panel" id="macroCalendarPanel">
             <div class="panel-header">
@@ -92,31 +95,14 @@
             </div>
             <div class="panel-body macro-calendar-feed" id="macroCalendarFeed"></div>
           </section>
-        </section>
 
-        <section class="stack-panel compact-stack-panel movers-panel movers-toggle-panel">
+        <section class="stack-panel compact-stack-panel market-list-panel">
           <div class="sub-panel">
             <div class="panel-header">
-              <h2 id="moversTitle">币安合约涨幅榜 top10</h2>
-              <div class="movers-toggle" aria-label="切换涨跌幅榜">
-                <button class="movers-toggle-button active" type="button" data-movers-mode="gainers">涨幅榜</button>
-                <button class="movers-toggle-button" type="button" data-movers-mode="losers">跌幅榜</button>
-              </div>
+              <h2>币安行情列表</h2>
+              <div class="panel-header-status" id="marketListStatus">按24小时成交量排序</div>
             </div>
-            <div class="panel-body" id="moversTable"></div>
-          </div>
-        </section>
-
-        <section class="stack-panel compact-stack-panel funding-panel funding-toggle-panel">
-          <div class="sub-panel">
-            <div class="panel-header">
-              <h2 id="fundingTitle">币安合约负资金费率 top10</h2>
-              <div class="movers-toggle" aria-label="切换资金费率榜">
-                <button class="movers-toggle-button active" type="button" data-funding-mode="negative">负费率</button>
-                <button class="movers-toggle-button" type="button" data-funding-mode="positive">正费率</button>
-              </div>
-            </div>
-            <div class="panel-body" id="fundingTable"></div>
+            <div class="panel-body" id="marketListTable"></div>
           </div>
         </section>
       </main>
@@ -140,8 +126,8 @@
       </section>
     </div>
 
-    <script src="./theme.js?v=20260609-market-grid-align-1"></script>
-    <script src="./config.js?v=20260609-market-grid-align-1"></script>
-    <script src="./script.js?v=20260609-market-grid-align-1"></script>
+    <script src="./theme.js?v=20260609-binance-market-list-2"></script>
+    <script src="./config.js?v=20260609-binance-market-list-2"></script>
+    <script src="./script.js?v=20260609-binance-market-list-2"></script>
   </body>
 </html>

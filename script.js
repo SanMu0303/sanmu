@@ -55,6 +55,8 @@ const moversTitle = document.getElementById("moversTitle");
 const moversTable = document.getElementById("moversTable");
 const fundingTitle = document.getElementById("fundingTitle");
 const fundingTable = document.getElementById("fundingTable");
+const marketListTable = document.getElementById("marketListTable");
+const marketListStatus = document.getElementById("marketListStatus");
 const volumeAlertList = document.getElementById("volumeAlertList");
 const shockHistoryList = document.getElementById("shockHistoryList");
 const volumeHistoryList = document.getElementById("volumeHistoryList");
@@ -769,8 +771,9 @@ async function fetchKlineSnapshot(symbol, interval) {
 }
 
 async function fetchIntervalMetrics(symbol) {
-  const [change5m, kline15m] = await Promise.all([
+  const [change5m, change1h, kline15m] = await Promise.all([
     fetchKlineChange(symbol, PERIODS.p5m),
+    fetchKlineChange(symbol, "1h"),
     fetchKlineSnapshot(symbol, PERIODS.p15m)
   ]);
 
@@ -781,6 +784,7 @@ async function fetchIntervalMetrics(symbol) {
 
   return {
     change5m,
+    change1h,
     change15m,
     ...kline15m
   };
@@ -1005,6 +1009,64 @@ function renderFundingRanking() {
   });
 
   renderTable("fundingTable", rows, "funding");
+}
+
+function renderMarketList(rows = state.rows) {
+  if (!marketListTable) {
+    return;
+  }
+
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  if (marketListStatus) {
+    marketListStatus.textContent = sourceRows.length ? `已加载 ${sourceRows.length} 个USDT永续合约` : "等待币安合约数据";
+  }
+
+  if (!sourceRows.length) {
+    marketListTable.innerHTML = `<div class="market-list-empty">当前未能拉取币安合约数据，请检查网络或接口可访问性。</div>`;
+    return;
+  }
+
+  const sortedRows = [...sourceRows].sort((a, b) => Number(b.quoteVolume || 0) - Number(a.quoteVolume || 0));
+  marketListTable.innerHTML = `
+    <div class="binance-market-table-wrap">
+      <div class="binance-market-table">
+        <div class="binance-market-row binance-market-head">
+          <div>序号</div>
+          <div>标的</div>
+          <div>最新价格</div>
+          <div>24小时涨跌幅度</div>
+          <div>成交量（USDT计价）</div>
+          <div>5分钟涨跌</div>
+          <div>1小时涨跌</div>
+          <div>市值</div>
+          <div>5日涨幅</div>
+          <div>30日涨幅</div>
+          <div>年初至今</div>
+        </div>
+        <div class="binance-market-body">
+          ${sortedRows
+            .map(
+              (row, index) => `
+                <button class="binance-market-row binance-market-item symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
+                  <div>${index + 1}</div>
+                  <div><strong>${row.baseAsset}</strong><span>${row.symbol}</span></div>
+                  <div>${formatPrice(row.lastPrice)}</div>
+                  <div class="${getDeltaClass(row.change24h)}">${formatPercent(row.change24h)}</div>
+                  <div>${formatCompact(row.quoteVolume)} USDT</div>
+                  <div class="${getDeltaClass(row.change5m)}">${formatPercent(row.change5m)}</div>
+                  <div class="${getDeltaClass(row.change1h)}">${formatPercent(row.change1h)}</div>
+                  <div>--</div>
+                  <div>--</div>
+                  <div>--</div>
+                  <div>--</div>
+                </button>
+              `
+            )
+            .join("")}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderVolumeTopStrip(rows) {
@@ -2265,9 +2327,7 @@ async function loadDashboard() {
         };
       });
 
-    const eligibleBaseRows = allBaseRows
-      .filter((row) => row.quoteVolume >= MIN_24H_QUOTE_VOLUME)
-      .sort((a, b) => b.quoteVolume - a.quoteVolume);
+    const eligibleBaseRows = allBaseRows.sort((a, b) => b.quoteVolume - a.quoteVolume);
 
     const detailedRows = await mapWithConcurrency(eligibleBaseRows, KLINE_CONCURRENCY, async (row) => {
       try {
@@ -2276,6 +2336,7 @@ async function loadDashboard() {
         const fullRow = {
           ...row,
           change5m: metrics.change5m,
+          change1h: metrics.change1h,
           change15m: metrics.change15m,
           heatScore: 0,
           shockTimeText: formatTime(new Date()),
@@ -2296,6 +2357,7 @@ async function loadDashboard() {
         const fallbackRow = {
           ...row,
           change5m: 0,
+          change1h: 0,
           change15m: 0,
           heatScore: 0,
           shockTimeText: formatTime(new Date()),
@@ -2383,8 +2445,7 @@ async function loadDashboard() {
     state.negativeFunding = negativeFunding;
     renderVolumeTopStrip(volumeTop);
     renderHeatRanking();
-    renderMoversRanking();
-    renderFundingRanking();
+    renderMarketList(detailedRows);
     ensureChartSelection(detailedRows);
     if (shockRecords.length) {
       updateHistory(shockRecords, "shock");
@@ -2405,9 +2466,8 @@ async function loadDashboard() {
     const errorHint = getBinanceFailureHint();
     setStatus("加载失败");
     const failHtml = `<div class="table-row"><div class="cell">当前未能拉取币安数据，请检查网络或接口可访问性。</div></div>`;
-    ["heatTable", "moversTable", "fundingTable"].forEach((id) => {
-      document.getElementById(id).innerHTML = failHtml;
-    });
+    document.getElementById("heatTable").innerHTML = failHtml;
+    renderMarketList([]);
     if (volumeTopStrip) {
       volumeTopStrip.innerHTML = `<div class="volume-chip"><div class="volume-chip-symbol">加载失败</div><div class="volume-chip-price">${isLocalFile ? "file环境受限" : "请检查网络"}</div></div>`;
     }

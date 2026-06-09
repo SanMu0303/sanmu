@@ -1902,10 +1902,50 @@ body.theme-dark .macro-calendar-panel {
   grid-template-columns: minmax(360px, 1.18fr) minmax(420px, 1.18fr) minmax(260px, 0.52fr);
   grid-template-rows: repeat(2, var(--market-panel-height));
   grid-template-areas:
-    "heat chain right"
-    "movers funding right";
+    "overview overview overview"
+    "marketlist marketlist macro";
   gap: var(--dashboard-gap);
   align-items: stretch;
+}
+
+.market-overview-panel {
+  grid-area: overview;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.market-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(520px, 1.35fr) minmax(520px, 1.05fr);
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
+.market-subpanel {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+
+.market-overview-panel #heatPanel,
+.market-overview-panel #chainPanel,
+.market-overview-panel .side-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.market-overview-panel .side-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.market-overview-panel .side-panel .divider {
+  margin: 8px 0;
 }
 
 .bottom-strip {
@@ -2304,11 +2344,10 @@ body.theme-dark .history-block {
 }
 
 #heatPanel {
-  grid-area: heat;
   display: flex;
   flex-direction: column;
-  height: var(--market-panel-height);
-  min-height: var(--market-panel-height);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2330,11 +2369,10 @@ body.theme-dark .history-block {
 }
 
 #chainPanel {
-  grid-area: chain;
   display: flex;
   flex-direction: column;
-  height: var(--market-panel-height);
-  min-height: var(--market-panel-height);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2363,6 +2401,7 @@ body.theme-dark .history-block {
 }
 
 .macro-calendar-panel {
+  grid-area: macro;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -2468,6 +2507,23 @@ body.theme-dark .history-block {
   grid-area: movers;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+}
+
+.market-list-panel {
+  grid-area: marketlist;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.market-list-panel .sub-panel,
+.market-list-panel .panel-body {
+  min-height: 0;
+}
+
+.market-list-panel .panel-body {
+  flex: 1;
   overflow: hidden;
 }
 
@@ -3119,6 +3175,107 @@ body.theme-dark .alert-red {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.binance-market-table-wrap {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
+.binance-market-table-wrap::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.binance-market-table-wrap::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+.binance-market-table {
+  display: grid;
+  gap: 4px;
+  min-width: 1320px;
+}
+
+.binance-market-row {
+  display: grid;
+  grid-template-columns: 44px minmax(94px, 1fr) minmax(86px, 0.9fr) minmax(104px, 0.9fr) minmax(132px, 1.12fr) minmax(86px, 0.8fr) minmax(86px, 0.8fr) minmax(92px, 0.8fr) minmax(86px, 0.8fr) minmax(92px, 0.8fr) minmax(92px, 0.8fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.binance-market-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.binance-market-body {
+  display: grid;
+  gap: 4px;
+}
+
+.binance-market-item {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.binance-market-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(32, 184, 176, 0.12);
+}
+
+.binance-market-item strong,
+.binance-market-item span {
+  display: block;
+}
+
+.binance-market-item strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.binance-market-item span {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.market-list-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 180px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .alert-empty-state {
   display: grid;
   place-items: center;
@@ -3280,16 +3437,13 @@ body.theme-dark .alert-red {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: repeat(3, var(--market-panel-height));
     grid-template-areas:
-      "heat chain"
-      "movers funding"
-      "right right";
+      "overview overview"
+      "marketlist marketlist"
+      "macro macro";
   }
 
-  .right-rail {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: minmax(0, 1fr);
-    height: 100%;
-    max-height: none;
+  .market-overview-grid {
+    grid-template-columns: minmax(260px, 0.68fr) minmax(420px, 1.22fr) minmax(420px, 1fr);
   }
 }
 
@@ -3381,25 +3535,51 @@ body.theme-dark .alert-red {
     grid-template-columns: 1fr;
     grid-template-rows: none;
     grid-template-areas:
+      "overview"
+      "marketlist"
+      "macro";
+  }
+
+  .market-overview-panel {
+    height: auto;
+  }
+
+  .market-overview-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
       "heat"
       "chain"
-      "movers"
-      "funding"
-      "right";
+      "side";
+    height: auto;
+  }
+
+  #heatPanel {
+    grid-area: heat;
+  }
+
+  #chainPanel {
+    grid-area: chain;
+  }
+
+  .side-panel {
+    grid-area: side;
+  }
+
+  .market-overview-panel .side-panel {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) 1px minmax(0, 1fr);
+  }
+
+  .market-overview-panel .side-panel .divider {
+    margin: 0 8px;
   }
 
   #heatPanel,
   #chainPanel,
-  .movers-panel,
-  .funding-panel {
+  .side-panel,
+  .market-list-panel,
+  .macro-calendar-panel {
     height: var(--market-panel-height);
-  }
-
-  .right-rail {
-    grid-template-columns: 1fr;
-    grid-template-rows: repeat(2, var(--market-panel-height));
-    height: auto;
-    overflow: visible;
   }
 
   .bottom-strip {
