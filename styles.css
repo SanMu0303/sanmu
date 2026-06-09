@@ -1900,12 +1900,12 @@ body.theme-dark .macro-calendar-panel {
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(360px, 1.18fr) minmax(420px, 1.18fr) minmax(260px, 0.52fr);
+  grid-template-rows: repeat(2, var(--market-panel-height));
   grid-template-areas:
     "heat chain right"
     "movers funding right";
   gap: var(--dashboard-gap);
   align-items: stretch;
-  min-height: calc(100vh - 112px);
 }
 
 .bottom-strip {
@@ -2300,7 +2300,7 @@ body.theme-dark .history-block {
 .stack-panel,
 .side-panel,
 .macro-calendar-panel {
-  min-height: 300px;
+  min-height: 0;
 }
 
 #heatPanel {
@@ -2345,30 +2345,28 @@ body.theme-dark .history-block {
 
 .right-rail {
   grid-area: right;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: var(--dashboard-gap);
-  justify-content: space-between;
   align-self: stretch;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
 .side-panel {
   display: grid;
   grid-template-rows: minmax(0, 1fr) 1px minmax(0, 1fr);
-  height: var(--market-panel-height);
-  min-height: var(--market-panel-height);
-  flex: 0 0 var(--market-panel-height);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
 .macro-calendar-panel {
   display: flex;
   flex-direction: column;
-  height: var(--macro-panel-height);
-  min-height: var(--macro-panel-height);
-  flex: 0 0 var(--macro-panel-height);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -2468,6 +2466,7 @@ body.theme-dark .history-block {
 
 .movers-panel {
   grid-area: movers;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -2516,6 +2515,7 @@ body.theme-dark .history-block {
 
 .funding-panel {
   grid-area: funding;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -3009,10 +3009,11 @@ body.theme-dark .alert-red {
 
 .side-panel .panel-body {
   padding: 6px;
-  display: block;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
 }
 
@@ -3028,12 +3029,106 @@ body.theme-dark .alert-red {
 
 #shockList,
 #volumeAlertList {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.market-alert-table {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
   min-height: 0;
 }
 
-.shock-list {
+.market-alert-row {
   display: grid;
+  grid-template-columns: minmax(52px, 0.72fr) minmax(48px, 0.7fr) minmax(60px, 0.82fr) minmax(62px, 0.9fr) minmax(60px, 0.9fr);
+  align-items: center;
+  gap: 5px;
+}
+
+.market-alert-table-volume .market-alert-row {
+  grid-template-columns: minmax(46px, 0.64fr) minmax(46px, 0.62fr) minmax(56px, 0.74fr) minmax(58px, 0.82fr) minmax(54px, 0.72fr) minmax(66px, 0.92fr);
+}
+
+.market-alert-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 24px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.market-alert-body {
+  display: grid;
+  align-content: start;
   gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 4px;
+  overscroll-behavior: contain;
+}
+
+.market-alert-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.market-alert-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+.market-alert-item {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.12;
+  text-align: left;
+}
+
+.market-alert-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px rgba(32, 184, 176, 0.12);
+}
+
+.market-alert-item strong {
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.market-alert-fresh {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.alert-empty-state {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 120px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
 }
 
 .history-block {
@@ -3183,6 +3278,7 @@ body.theme-dark .alert-red {
 @media (max-width: 1440px) {
   .dashboard-grid {
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(3, var(--market-panel-height));
     grid-template-areas:
       "heat chain"
       "movers funding"
@@ -3190,7 +3286,9 @@ body.theme-dark .alert-red {
   }
 
   .right-rail {
-    height: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+    height: 100%;
     max-height: none;
   }
 }
@@ -3288,6 +3386,20 @@ body.theme-dark .alert-red {
       "movers"
       "funding"
       "right";
+  }
+
+  #heatPanel,
+  #chainPanel,
+  .movers-panel,
+  .funding-panel {
+    height: var(--market-panel-height);
+  }
+
+  .right-rail {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, var(--market-panel-height));
+    height: auto;
+    overflow: visible;
   }
 
   .bottom-strip {

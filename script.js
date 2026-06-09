@@ -1377,34 +1377,14 @@ function ensureChartSelection(rows) {
 
 function renderShockList(rows) {
   const target = document.getElementById("shockList");
-  if (!rows.length) {
-    target.innerHTML = `<div class="shock-item"><div class="shock-left"><strong>暂无异常</strong><span>当前没有满足阈值的标的</span></div></div>`;
+  if (!target) {
     return;
   }
 
-  target.innerHTML = `
-    <div class="shock-list">
-      ${rows
-        .map(
-          (row) => `
-            <button class="shock-item symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
-              <div class="shock-left">
-                <strong>${row.baseAsset}</strong>
-                <span>${formatPrice(row.lastPrice)}</span>
-              </div>
-              <div class="shock-main">
-                <strong class="${getDeltaClass(row.change5m)}">${formatPercent(row.change5m)}</strong>
-              </div>
-              <div class="shock-right">
-                <span>24H ${formatPercent(row.change24h)}</span>
-                <span>时间 ${row.shockTimeText}</span>
-              </div>
-            </button>
-          `
-        )
-        .join("")}
-    </div>
-  `;
+  renderAlertTable(target, mergeAlertRows(rows, "shock"), {
+    emptyText: "暂无价格异动",
+    columns: ["时间", "标的", "价格", "24小时涨跌", "异动数据"]
+  });
 }
 
 function loadHistory(key) {
@@ -1428,9 +1408,107 @@ function saveHistory(key, items) {
 function updateHistory(records, type) {
   const key = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
   const existing = loadHistory(key);
-  const merged = [...records, ...existing].slice(0, 50);
+  const merged = dedupeAlertHistory([...records, ...existing]).slice(0, 50);
   saveHistory(key, merged);
-  renderHistory(type);
+}
+
+function dedupeAlertHistory(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = [item.type || "", item.chartSymbol || item.symbol || "", item.timeMs || item.timeText || "", item.alertValue || item.detail || ""].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeAlertRows(rows, type) {
+  const historyKey = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
+  const liveItems = rows.map((row) => normalizeLiveAlertRow(row, type));
+  const historyItems = loadHistory(historyKey).map((item) => normalizeHistoryAlertRow(item, type));
+  return dedupeAlertHistory([...liveItems, ...historyItems])
+    .sort((a, b) => Number(b.timeMs || 0) - Number(a.timeMs || 0))
+    .slice(0, 50);
+}
+
+function normalizeLiveAlertRow(row, type) {
+  const now = Date.now();
+  const isVolume = type === "volume";
+  const alertValue = isVolume ? `${row.volumeMultiple.toFixed(2)}x` : formatPercent(row.change5m);
+  return {
+    type,
+    symbol: row.baseAsset,
+    chartSymbol: row.symbol,
+    price: formatPrice(row.lastPrice),
+    change24h: formatPercent(row.change24h),
+    change24hClass: getDeltaClass(row.change24h),
+    alertValue,
+    alertClass: isVolume ? getVolumeMultipleClass(row.volumeMultiple) : getDeltaClass(row.change5m),
+    volume: isVolume ? `${formatCompact(row.latest15mQuoteVolume)} USDT` : "",
+    timeMs: now,
+    timeText: row.shockTimeText || formatTime(new Date()),
+    fresh: true
+  };
+}
+
+function normalizeHistoryAlertRow(item, type) {
+  const timeMs = Number(item.timeMs || 0);
+  return {
+    type: item.type || type,
+    symbol: item.symbol || "--",
+    chartSymbol: item.chartSymbol || "",
+    price: item.price || "--",
+    change24h: item.change24h || "--",
+    change24hClass: item.change24hClass || "",
+    alertValue: item.alertValue || item.detail || "--",
+    alertClass: item.alertClass || "",
+    volume: item.volume || "--",
+    timeMs,
+    timeText: item.timeText || "--",
+    fresh: timeMs ? Date.now() - timeMs <= FRESH_NEWS_WINDOW_MS : false
+  };
+}
+
+function renderAlertTable(target, rows, options) {
+  if (!target) {
+    return;
+  }
+
+  if (!rows.length) {
+    target.innerHTML = `
+      <div class="market-alert-table ${options.volume ? "market-alert-table-volume" : ""}">
+        <div class="market-alert-row market-alert-head">
+          ${options.columns.map((column) => `<div>${column}</div>`).join("")}
+        </div>
+        <div class="alert-empty-state">${options.emptyText}</div>
+      </div>
+    `;
+    return;
+  }
+
+  target.innerHTML = `
+    <div class="market-alert-table ${options.volume ? "market-alert-table-volume" : ""}">
+      <div class="market-alert-row market-alert-head">
+        ${options.columns.map((column) => `<div>${column}</div>`).join("")}
+      </div>
+      <div class="market-alert-body">
+        ${rows
+          .map(
+            (row) => `
+              <button class="market-alert-row market-alert-item symbol-trigger ${row.fresh ? "market-alert-fresh" : ""}" type="button" data-chart-symbol="${row.chartSymbol}">
+                <div>${row.timeText}</div>
+                <div><strong>${row.symbol}</strong></div>
+                <div>${row.price}</div>
+                <div class="${row.change24hClass}">${row.change24h}</div>
+                <div class="${row.alertClass}">${row.alertValue}</div>
+                ${options.volume ? `<div>${row.volume}</div>` : ""}
+              </button>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
 }
 
 function clearHistory(type) {
@@ -1477,35 +1555,11 @@ function renderVolumeAlertList(rows) {
     return;
   }
 
-  if (!rows.length) {
-    volumeAlertList.innerHTML = `<div class="shock-item"><div class="shock-left"><strong>暂无异常</strong><span>当前没有满足放量条件的标的</span></div></div>`;
-    return;
-  }
-
-  volumeAlertList.innerHTML = `
-    <div class="shock-list">
-      ${rows
-        .map(
-          (row) => `
-            <button class="shock-item symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
-              <div class="shock-left">
-                <strong>${row.baseAsset}</strong>
-                <span>${formatPrice(row.lastPrice)}</span>
-              </div>
-              <div class="shock-main">
-                <strong class="${getVolumeMultipleClass(row.volumeMultiple)}">${row.volumeMultiple.toFixed(2)}x</strong>
-              </div>
-              <div class="shock-right">
-                <span class="${getDeltaClass(row.volumeKlineChange)}">K线涨跌 ${formatPercent(row.volumeKlineChange)}</span>
-                <span>15m现量 ${formatCompact(row.latest15mQuoteVolume)} USDT</span>
-                <span>前量 ${formatCompact(row.previous15mQuoteVolume)} USDT</span>
-              </div>
-            </button>
-          `
-        )
-        .join("")}
-    </div>
-  `;
+  renderAlertTable(volumeAlertList, mergeAlertRows(rows, "volume"), {
+    emptyText: "暂无异常放量",
+    columns: ["时间", "标的", "价格", "24小时涨跌", "异动数据", "交易量"],
+    volume: true
+  });
 }
 
 function renderBottomFeeds() {
@@ -2287,17 +2341,32 @@ async function loadDashboard() {
     const shockRecords = shocks
       .filter((row) => !state.activeShockSymbols.has(row.symbol))
       .map((row) => ({
+        type: "shock",
         symbol: row.baseAsset,
         chartSymbol: row.symbol,
+        price: formatPrice(row.lastPrice),
+        change24h: formatPercent(row.change24h),
+        change24hClass: getDeltaClass(row.change24h),
+        alertValue: formatPercent(row.change5m),
+        alertClass: getDeltaClass(row.change5m),
         detail: `${formatPercent(row.change5m)} / 24H ${formatPercent(row.change24h)}`,
+        timeMs: Date.now(),
         timeText: formatShortDateTime(new Date())
       }));
     const volumeRecords = volumeAlerts
       .filter((row) => !state.activeVolumeSymbols.has(row.symbol))
       .map((row) => ({
+        type: "volume",
         symbol: row.baseAsset,
         chartSymbol: row.symbol,
+        price: formatPrice(row.lastPrice),
+        change24h: formatPercent(row.change24h),
+        change24hClass: getDeltaClass(row.change24h),
+        alertValue: `${row.volumeMultiple.toFixed(2)}x`,
+        alertClass: getVolumeMultipleClass(row.volumeMultiple),
+        volume: `${formatCompact(row.latest15mQuoteVolume)} USDT`,
         detail: `${row.volumeMultiple.toFixed(2)}x / ${formatPercent(row.volumeKlineChange)}`,
+        timeMs: Date.now(),
         timeText: formatShortDateTime(new Date())
       }));
 
@@ -2316,19 +2385,15 @@ async function loadDashboard() {
     renderHeatRanking();
     renderMoversRanking();
     renderFundingRanking();
-    renderShockList(shocks);
-    renderVolumeAlertList(volumeAlerts);
     ensureChartSelection(detailedRows);
     if (shockRecords.length) {
       updateHistory(shockRecords, "shock");
-    } else {
-      renderHistory("shock");
     }
     if (volumeRecords.length) {
       updateHistory(volumeRecords, "volume");
-    } else {
-      renderHistory("volume");
     }
+    renderShockList(shocks);
+    renderVolumeAlertList(volumeAlerts);
     renderBottomFeeds();
 
     updateTime();
@@ -2349,11 +2414,16 @@ async function loadDashboard() {
     if (tradingviewPanel) {
       tradingviewPanel.innerHTML = `<div class="tv-fallback">${errorHint}</div>`;
     }
-    document.getElementById("shockList").innerHTML =
-      `<div class="shock-item"><div class="shock-left"><strong>加载失败</strong><span>无法获取异动列表</span></div></div>`;
+    renderAlertTable(document.getElementById("shockList"), [], {
+      emptyText: "加载失败，无法获取异动列表",
+      columns: ["时间", "标的", "价格", "24小时涨跌", "异动数据"]
+    });
     if (volumeAlertList) {
-      volumeAlertList.innerHTML =
-        `<div class="shock-item"><div class="shock-left"><strong>加载失败</strong><span>无法获取放量列表</span></div></div>`;
+      renderAlertTable(volumeAlertList, [], {
+        emptyText: "加载失败，无法获取放量列表",
+        columns: ["时间", "标的", "价格", "24小时涨跌", "异动数据", "交易量"],
+        volume: true
+      });
     }
     renderHistory("shock");
     renderHistory("volume");
