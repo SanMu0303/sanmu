@@ -1,7 +1,8 @@
 :root {
-  --market-panel-height: 520px;
-  --macro-panel-height: 360px;
-  --dashboard-gap: 10px;
+  --dashboard-gap: clamp(8px, 0.55vw, 14px);
+  --page-gutter: clamp(8px, 0.8vw, 18px);
+  --market-panel-height: clamp(460px, calc((100vh - 136px) / 2), 720px);
+  --macro-panel-height: clamp(250px, calc(var(--market-panel-height) * 0.56), 420px);
   --bg: #f6f7fb;
   --panel: #ffffff;
   --panel-soft: #fbfcfe;
@@ -80,8 +81,9 @@ button {
 }
 
 .page-shell {
-  width: min(100vw - 24px, 1620px);
-  margin: 12px auto 20px;
+  width: calc(100vw - (var(--page-gutter) * 2));
+  max-width: 100%;
+  margin: var(--page-gutter) auto 20px;
 }
 
 .topbar,
@@ -1005,6 +1007,87 @@ html.theme-dark .exchange-card.bitget {
   object-fit: cover;
 }
 
+.kline-page {
+  min-height: calc(100vh - 86px);
+}
+
+.kline-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: calc(100vh - 92px);
+  overflow: hidden;
+}
+
+.kline-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kline-panel-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.kline-widget-shell {
+  min-height: 0;
+  padding: 10px;
+  background: var(--panel-soft);
+}
+
+.kline-widget {
+  width: 100%;
+  height: calc(100vh - 130px);
+  min-height: 620px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.kline-widget iframe,
+.kline-widget .tradingview-widget-container,
+.kline-widget .tradingview-widget-container__widget {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.kline-widget .tradingview-widget-container {
+  position: relative;
+}
+
+.kline-open-fallback {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  backdrop-filter: blur(10px);
+}
+
+.kline-open-fallback:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
 .community-modal[hidden] {
   display: none;
 }
@@ -1816,12 +1899,13 @@ body.theme-dark .macro-calendar-panel {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1.18fr 1.18fr 0.52fr;
+  grid-template-columns: minmax(360px, 1.18fr) minmax(420px, 1.18fr) minmax(260px, 0.52fr);
   grid-template-areas:
     "heat chain right"
     "movers funding right";
   gap: var(--dashboard-gap);
   align-items: stretch;
+  min-height: calc(100vh - 112px);
 }
 
 .bottom-strip {
@@ -3183,6 +3267,16 @@ body.theme-dark .alert-red {
 
   .exchange-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kline-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .kline-widget {
+    height: calc(100vh - 158px);
+    min-height: 520px;
   }
 
   .dashboard-grid {
