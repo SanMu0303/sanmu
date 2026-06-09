@@ -942,6 +942,69 @@ button {
   background: #07c160;
 }
 
+.exchange-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.exchange-card {
+  position: relative;
+  min-height: 168px;
+  overflow: hidden;
+}
+
+.exchange-logo {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  margin-bottom: 6px;
+  background: var(--exchange-color);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--exchange-color) 22%, transparent);
+}
+
+.exchange-logo img {
+  width: 40px;
+  height: 40px;
+  display: block;
+  border-radius: 9px;
+  object-fit: contain;
+  filter: var(--exchange-logo-filter, none);
+}
+
+.exchange-card.binance {
+  --exchange-color: #f3ba2f;
+}
+
+.exchange-card.okx {
+  --exchange-color: #050505;
+  --exchange-logo-filter: none;
+}
+
+.exchange-card.bybit,
+.exchange-card.bitget {
+  --exchange-color: transparent;
+}
+
+html.theme-dark .exchange-card.okx {
+  --exchange-color: #050505;
+}
+
+html.theme-dark .exchange-card.bybit,
+html.theme-dark .exchange-card.bitget {
+  --exchange-color: transparent;
+}
+
+.exchange-card.bybit .exchange-logo img,
+.exchange-card.bitget .exchange-logo img {
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  object-fit: cover;
+}
+
 .community-modal[hidden] {
   display: none;
 }
@@ -1071,8 +1134,8 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   grid-template-areas:
-    "equity equity"
-    "history positions"
+    "equity positions"
+    "history activity"
     "closed closed";
   gap: 10px;
 }
@@ -1094,6 +1157,10 @@ button {
   grid-area: positions;
 }
 
+.live-activity-panel {
+  grid-area: activity;
+}
+
 .live-closed-trades-panel {
   grid-area: closed;
 }
@@ -1104,19 +1171,26 @@ button {
 
 .live-equity-panel .panel-header {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   justify-content: normal;
 }
 
 .live-equity-panel .live-panel-status {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.live-equity-panel .live-chart-tabs {
+  grid-column: 2;
   justify-self: end;
+  align-self: center;
 }
 
 .live-chart-summary-bar {
-  justify-self: start;
+  justify-self: end;
   align-self: center;
-  max-width: min(520px, 38vw);
+  max-width: min(420px, 30vw);
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -1157,14 +1231,16 @@ button {
 .live-equity-body {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  gap: 10px;
+  gap: 0;
   min-height: 330px;
+  padding: 0;
 }
 
 .live-summary-grid {
   display: grid;
   gap: 8px;
   align-content: start;
+  padding: 8px;
 }
 
 .live-metric-card {
@@ -1195,14 +1271,15 @@ button {
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  background: var(--panel-soft);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 98%, var(--accent) 2%), var(--panel-soft)),
+    var(--panel);
+  margin: 8px 8px 8px 0;
 }
 
 .live-chart-tabs {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
+  position: relative;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1243,7 +1320,7 @@ button {
 
 .live-chart-canvas {
   position: absolute;
-  inset: 46px 0 0;
+  inset: 0;
   z-index: 1;
 }
 
@@ -1253,28 +1330,34 @@ button {
   overflow: visible;
   color: var(--accent);
   display: block;
+  text-rendering: geometricPrecision;
 }
 
 .live-chart-grid {
-  stroke: color-mix(in srgb, var(--border) 72%, transparent);
+  stroke: color-mix(in srgb, var(--border) 68%, transparent);
   stroke-width: 1;
+  stroke-dasharray: 4 9;
 }
 
 .live-chart-time-grid {
-  stroke: color-mix(in srgb, var(--border) 58%, transparent);
+  stroke: color-mix(in srgb, var(--border) 42%, transparent);
   stroke-width: 1;
 }
 
 .live-chart-axis,
 .live-chart-time {
   fill: var(--muted);
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
 .live-chart-axis {
-  opacity: 0.62;
+  opacity: 0.82;
+}
+
+.live-chart-time {
+  opacity: 0.86;
 }
 
 .live-chart-area {
@@ -1284,10 +1367,15 @@ button {
 .live-chart-path {
   fill: none;
   stroke: currentColor;
-  stroke-width: 3.2;
+  stroke-width: 2.15;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0 12px color-mix(in srgb, currentColor 42%, transparent));
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 5px 8px color-mix(in srgb, var(--accent) 16%, transparent));
+}
+
+.live-chart-detail-line {
+  opacity: 0.96;
 }
 
 .live-chart-summary rect {
@@ -1311,63 +1399,37 @@ button {
 }
 
 .live-chart-glow {
-  opacity: 0.22;
-  stroke-width: 13;
-  filter: blur(4px);
+  opacity: 0.16;
+  stroke-width: 7;
+  filter: blur(3px);
 }
 
-.live-chart-dot {
+.live-chart-marker circle {
   fill: var(--panel);
-  stroke: currentColor;
-  stroke-width: 4;
-}
-
-.live-chart-last {
-  fill: var(--text);
-  font-size: 13px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-}
-
-.live-chart-extreme line {
-  stroke: color-mix(in srgb, var(--text) 34%, transparent);
-  stroke-width: 1;
-  stroke-dasharray: 4 4;
-}
-
-.live-chart-extreme circle {
-  fill: var(--panel);
-  stroke-width: 4;
-}
-
-.live-chart-extreme rect {
-  fill: color-mix(in srgb, var(--panel) 88%, transparent);
-  stroke: var(--border);
-  stroke-width: 1;
-  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.16));
-}
-
-.live-chart-extreme text {
-  fill: var(--text);
-  font-size: 10px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-}
-
-.live-chart-high {
-  color: var(--accent);
-}
-
-.live-chart-high circle {
   stroke: var(--accent);
+  stroke-width: 5;
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent) 50%, transparent));
 }
 
-.live-chart-low {
-  color: var(--red);
+.live-chart-marker rect {
+  fill: color-mix(in srgb, var(--panel) 62%, transparent);
+  stroke: color-mix(in srgb, var(--border) 74%, transparent);
+  stroke-width: 1;
+  filter: drop-shadow(0 10px 18px rgba(15, 23, 42, 0.08));
 }
 
-.live-chart-low circle {
-  stroke: var(--red);
+.live-chart-marker text:first-of-type {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-chart-marker text:last-of-type {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .live-chart-down {
@@ -1415,6 +1477,63 @@ button {
 .live-table-wrap {
   max-height: 420px;
   overflow: auto;
+}
+
+.live-activity-list {
+  display: grid;
+  gap: 5px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.live-activity-row {
+  display: grid;
+  grid-template-columns: 1.05fr 0.8fr 0.72fr 0.55fr 0.62fr 0.82fr;
+  gap: 7px;
+  align-items: center;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  min-width: 560px;
+}
+
+.live-activity-head {
+  color: var(--muted);
+  font-weight: 800;
+  background: color-mix(in srgb, var(--panel) 74%, var(--panel-soft));
+}
+
+.live-activity-row > div {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-activity-row > div:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-direction-long {
+  color: var(--green) !important;
+  font-weight: 800;
+}
+
+.live-direction-short {
+  color: var(--red) !important;
+  font-weight: 800;
+}
+
+.live-direction-close {
+  color: var(--amber) !important;
+  font-weight: 800;
 }
 
 .live-table {
@@ -2511,6 +2630,10 @@ body.theme-dark .tv-interval-btn.active {
 }
 
 @media (max-width: 640px) {
+  .exchange-grid {
+    grid-template-columns: 1fr;
+  }
+
   .video-public-body .video-list {
     grid-template-columns: 1fr;
   }
@@ -3058,6 +3181,10 @@ body.theme-dark .alert-red {
     grid-template-columns: 1fr;
   }
 
+  .exchange-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-grid {
     grid-template-columns: 1fr;
     grid-template-rows: none;
@@ -3086,8 +3213,10 @@ body.theme-dark .alert-red {
     grid-template-columns: 1fr;
     grid-template-areas:
       "equity"
+      "positions"
       "history"
-      "positions";
+      "activity"
+      "closed";
   }
 
   .live-equity-body {

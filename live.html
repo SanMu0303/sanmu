@@ -10,10 +10,10 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <script src="./theme.js?v=20260606-chart-grid-redraw-2" defer></script>
-    <link rel="stylesheet" href="./styles.css?v=20260606-chart-grid-redraw-2" />
-    <script src="./config.js?v=20260606-chart-grid-redraw-2" defer></script>
-    <script src="./live.js?v=20260606-chart-grid-redraw-2" defer></script>
+    <script src="./theme.js?v=20260607-live-activity-history-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260607-live-activity-history-1" />
+    <script src="./config.js?v=20260607-live-activity-history-1" defer></script>
+    <script src="./live.js?v=20260607-live-activity-history-1" defer></script>
   </head>
   <body class="theme-dark">
     <div class="page-shell">
@@ -48,6 +48,11 @@
               <span class="feed-health-dot"></span>
               <span>等待 API</span>
             </div>
+            <div class="live-chart-tabs" aria-label="资金曲线类型">
+              <button class="live-chart-tab active" type="button" data-live-chart-mode="equity">资金</button>
+              <button class="live-chart-tab" type="button" data-live-chart-mode="return">收益率</button>
+              <button class="live-chart-tab" type="button" data-live-chart-mode="profit">盈利</button>
+            </div>
           </div>
           <div class="panel-body live-equity-body" id="liveEquityCurve">
             <div class="live-summary-grid">
@@ -69,11 +74,6 @@
               </div>
             </div>
             <div class="live-chart-placeholder">
-              <div class="live-chart-tabs" aria-label="资金曲线类型">
-                <button class="live-chart-tab active" type="button" data-live-chart-mode="equity">资金</button>
-                <button class="live-chart-tab" type="button" data-live-chart-mode="return">收益率</button>
-                <button class="live-chart-tab" type="button" data-live-chart-mode="profit">盈利</button>
-              </div>
               <div class="live-chart-canvas" id="liveChartCanvas" aria-label="实盘资金曲线"></div>
               <div class="live-empty-state">
                 <strong id="liveChartTitle">资金曲线等待接入</strong>
@@ -125,6 +125,18 @@
               </div>
               <div class="live-empty-row">正在读取币安当前持仓...</div>
             </div>
+          </div>
+        </section>
+
+        <section class="board-panel live-panel live-activity-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">TRADE ACTIVITY</p>
+              <h2>交易动态</h2>
+            </div>
+          </div>
+          <div class="panel-body live-activity-list" id="liveTradeActivity">
+            <div class="live-empty-row">正在读取交易动态...</div>
           </div>
         </section>
 

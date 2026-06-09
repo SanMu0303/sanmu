@@ -22,6 +22,7 @@
     historyStatus: document.getElementById("liveHistoryStatus"),
     closedTradeStatus: document.getElementById("liveClosedTradeStatus"),
     historyTable: document.querySelector(".live-history-table"),
+    activityList: document.querySelector(".live-activity-list"),
     closedTradesTable: document.querySelector(".live-closed-trades-table"),
     positionTable: document.querySelector(".live-position-table"),
     tabs: Array.from(document.querySelectorAll(".live-chart-tab"))
@@ -102,11 +103,25 @@
     return `${month}/${day} ${hours}:${minutes}`;
   }
 
+  function formatDateLabel(timestamp) {
+    if (!timestamp) return "--";
+    const date = new Date(timestamp);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
   function formatChartValue(value, mode) {
     const number = Number(value);
     if (!Number.isFinite(number)) return "--";
     if (mode === "return") return `${number.toFixed(2)}%`;
     return `${number.toLocaleString("en-US", { maximumFractionDigits: 2 })} USDT`;
+  }
+
+  function formatCompactChartValue(value, mode) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "--";
+    if (mode === "return") return `${number.toFixed(2)}%`;
+    if (Math.abs(number) >= 1000) return `${Math.round(number).toLocaleString("en-US")}`;
+    return number.toLocaleString("en-US", { maximumFractionDigits: 2 });
   }
 
   function formatPrice(value) {
@@ -191,15 +206,22 @@
       ];
     }
 
-    const width = 1000;
-    const height = 320;
-    const padding = { top: 34, right: 18, bottom: 42, left: 0 };
+    const chartBounds = els.chartCanvas.getBoundingClientRect();
+    const width = Math.max(620, Math.round(chartBounds.width || 860));
+    const height = Math.max(300, Math.round(chartBounds.height || 320));
+    const isCompactChart = width < 820;
+    const padding = {
+      top: 24,
+      right: isCompactChart ? 22 : 48,
+      bottom: isCompactChart ? 44 : 52,
+      left: isCompactChart ? 78 : 118
+    };
     const values = series.map((row) => Number(row[config.key]));
     const rawMinValue = Math.min(...values);
     const rawMaxValue = Math.max(...values);
     const rawRange = rawMaxValue - rawMinValue || Math.max(Math.abs(rawMaxValue), 1) * 0.02;
-    const minValue = rawMinValue - rawRange * 0.08;
-    const maxValue = rawMaxValue + rawRange * 0.08;
+    const minValue = rawMinValue - rawRange * 0.02;
+    const maxValue = rawMaxValue + rawRange * 0.05;
     const valueRange = maxValue - minValue;
     const minTime = series[0].time;
     const maxTime = series[series.length - 1].time;
@@ -220,47 +242,64 @@
     const lastValue = values[values.length - 1];
     const diff = lastValue - firstValue;
     const diffClass = diff >= 0 ? "live-chart-up" : "live-chart-down";
-    const smoothPath = buildSmoothPath(points);
-    const areaPath = `${smoothPath} L${points[points.length - 1].x.toFixed(2)} ${height - padding.bottom} L${points[0].x.toFixed(2)} ${height - padding.bottom} Z`;
+    const linePath = points.length > 80 ? buildPath(points) : buildSmoothPath(points);
+    const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(2)} ${height - padding.bottom} L${points[0].x.toFixed(2)} ${height - padding.bottom} Z`;
     const gridLines = [0, 0.25, 0.5, 0.75, 1]
       .map((ratio) => {
         const y = padding.top + ratio * plotHeight;
         const value = maxValue - ratio * valueRange;
         return `
-          <line class="live-chart-grid" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>
-          <text class="live-chart-axis" x="${width - padding.right - 122}" y="${y - 5}">${formatChartValue(value, activeChartMode)}</text>
+          <line class="live-chart-grid" x1="${padding.left}" y1="${y}" x2="${width}" y2="${y}"></line>
+          <text class="live-chart-axis" x="${padding.left - 16}" y="${y + 7}" text-anchor="end">${formatCompactChartValue(value, activeChartMode)}</text>
         `;
       })
       .join("");
-    const timeTicks = [0, 0.2, 0.4, 0.6, 0.8, 1]
+    const timeTickRatios = isCompactChart ? [0, 0.34, 0.67, 1] : [0, 0.2, 0.4, 0.6, 0.8, 1];
+    const timeTicks = timeTickRatios
       .map((ratio) => {
         const x = padding.left + ratio * plotWidth;
         const time = minTime + ratio * timeRange;
         const anchor = ratio === 0 ? "start" : ratio === 1 ? "end" : "middle";
         return `
           <line class="live-chart-time-grid" x1="${x}" y1="${padding.top}" x2="${x}" y2="${height - padding.bottom}"></line>
-          <text class="live-chart-time" x="${x}" y="${height - 12}" text-anchor="${anchor}">${formatTime(time)}</text>
+          <text class="live-chart-time" x="${x}" y="${height - 12}" text-anchor="${anchor}">${formatDateLabel(time)}</text>
         `;
       })
       .join("");
     const summaryText = `${sampleCount} 个采样点 · 最新 ${formatChartValue(lastValue, activeChartMode)} · 较首点 ${diff >= 0 ? "+" : ""}${formatChartValue(diff, activeChartMode)}`;
+    const highPoint = points.reduce((best, point) => (point.value > best.value ? point : best), points[0]);
+    const lowPoint = points.reduce((best, point) => (point.value < best.value ? point : best), points[0]);
+    const highLabelX = Math.max(padding.left + 12, Math.min(highPoint.x - 58, width - 136));
+    const highLabelY = Math.max(padding.top + 8, Math.min(highPoint.y + 10, height - padding.bottom - 40));
+    const lowLabelX = Math.max(padding.left + 12, Math.min(lowPoint.x - 58, width - 136));
+    const lowLabelY = Math.max(padding.top + 8, Math.min(lowPoint.y - 44, height - padding.bottom - 40));
 
     els.chartCanvas.innerHTML = `
-      <svg class="live-chart-svg ${diffClass}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+      <svg class="live-chart-svg ${diffClass}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${config.title}">
         <defs>
           <linearGradient id="liveChartFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stop-color="currentColor" stop-opacity="0.24"></stop>
-            <stop offset="72%" stop-color="currentColor" stop-opacity="0.06"></stop>
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.16"></stop>
+            <stop offset="72%" stop-color="currentColor" stop-opacity="0.04"></stop>
             <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
           </linearGradient>
         </defs>
         ${timeTicks}
         ${gridLines}
         <path class="live-chart-area" d="${areaPath}"></path>
-        <path class="live-chart-path live-chart-glow" d="${smoothPath}"></path>
-        <path class="live-chart-path" d="${smoothPath}"></path>
-        <circle class="live-chart-dot" cx="${last.x}" cy="${last.y}" r="4.5"></circle>
-        <text class="live-chart-last" x="${Math.max(padding.left + 8, Math.min(last.x + 12, width - padding.right - 180))}" y="${Math.max(24, last.y - 10)}">${formatChartValue(last.value, activeChartMode)}</text>
+        <path class="live-chart-path live-chart-glow" d="${linePath}"></path>
+        <path class="live-chart-path live-chart-detail-line" d="${linePath}"></path>
+        <g class="live-chart-marker live-chart-marker-low">
+          <circle cx="${lowPoint.x}" cy="${lowPoint.y}" r="10"></circle>
+          <rect x="${lowLabelX}" y="${lowLabelY}" width="104" height="34" rx="6"></rect>
+          <text x="${lowLabelX + 52}" y="${lowLabelY + 15}" text-anchor="middle">${formatCompactChartValue(lowPoint.value, activeChartMode)}</text>
+          <text x="${lowLabelX + 52}" y="${lowLabelY + 28}" text-anchor="middle">${formatDateLabel(lowPoint.time)}</text>
+        </g>
+        <g class="live-chart-marker live-chart-marker-high">
+          <circle cx="${highPoint.x}" cy="${highPoint.y}" r="10"></circle>
+          <rect x="${highLabelX}" y="${highLabelY}" width="104" height="34" rx="6"></rect>
+          <text x="${highLabelX + 52}" y="${highLabelY + 15}" text-anchor="middle">${formatCompactChartValue(highPoint.value, activeChartMode)}</text>
+          <text x="${highLabelX + 52}" y="${highLabelY + 28}" text-anchor="middle">${formatDateLabel(highPoint.time)}</text>
+        </g>
       </svg>
     `;
     els.chartEmptyState?.classList.add("has-chart");
@@ -365,6 +404,57 @@
         <div>持仓</div>
         <div>均价</div>
         <div>浮盈亏</div>
+      </div>
+      <div class="live-empty-row">${message}</div>
+    `;
+  }
+
+  function renderActivity(rows) {
+    if (!els.activityList) return;
+    const visibleRows = (rows || []).slice(0, 100);
+    const head = `
+      <div class="live-activity-row live-activity-head">
+        <div>时间</div>
+        <div>标的</div>
+        <div>价格</div>
+        <div>方向</div>
+        <div>数量</div>
+        <div>金额</div>
+      </div>
+    `;
+
+    if (!visibleRows.length) {
+      els.activityList.innerHTML = `${head}<div class="live-empty-row">暂无交易动态。</div>`;
+      return;
+    }
+
+    els.activityList.innerHTML = `${head}${visibleRows
+      .map((row) => {
+        const directionClass = row.side === "买多" ? "live-direction-long" : row.side === "卖空" ? "live-direction-short" : row.side === "平多" || row.side === "平空" ? "live-direction-close" : "";
+        return `
+          <div class="live-activity-row">
+            <div>${formatTime(row.time)}</div>
+            <div>${row.symbol || "--"}</div>
+            <div>${row.price || row.close || row.open || "--"}</div>
+            <div class="${directionClass}">${row.side || "--"}</div>
+            <div>${row.quantity || row.qty || "--"}</div>
+            <div>${row.amount || row.value || "--"}</div>
+          </div>
+        `;
+      })
+      .join("")}`;
+  }
+
+  function renderActivityMessage(message) {
+    if (!els.activityList) return;
+    els.activityList.innerHTML = `
+      <div class="live-activity-row live-activity-head">
+        <div>时间</div>
+        <div>标的</div>
+        <div>价格</div>
+        <div>方向</div>
+        <div>数量</div>
+        <div>金额</div>
       </div>
       <div class="live-empty-row">${message}</div>
     `;
@@ -515,6 +605,7 @@
       };
     });
     renderHistory(historyRows);
+    renderActivity(payload?.tradeActivity || []);
     renderPositions(payload?.positions || []);
     renderClosedTrades(payload?.closedTrades || []);
     renderChart(payload);
@@ -548,6 +639,7 @@
         setText(els.chartTitle, "实盘接口未连接");
         setText(els.chartSubtitle, readableError);
         renderHistoryMessage(readableError);
+        renderActivityMessage(readableError);
         renderPositionsMessage(readableError);
         renderClosedTradesMessage(readableError);
         console.warn("Binance account load failed:", error);

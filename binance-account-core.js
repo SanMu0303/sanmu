@@ -15,6 +15,7 @@ const PRIVATE_ENV_FILE = path.join(__dirname, "binance-private.env");
 const EQUITY_HISTORY_FILE = path.join(__dirname, "live-equity-history.json");
 const TRADE_HISTORY_FILE = path.join(__dirname, "live-trade-history.json");
 const CLOSED_TRADES_FILE = path.join(__dirname, "live-closed-trades.json");
+const TRADE_ACTIVITY_FILE = path.join(__dirname, "live-trade-activity.json");
 const REQUEST_TIMEOUT_MS = 4500;
 const ACCOUNT_CACHE_MS = 12000;
 const STALE_CACHE_MS = 5 * 60 * 1000;
@@ -27,6 +28,11 @@ const CLOSED_TRADES_LIMIT = 1000;
 const CLOSED_TRADES_SYMBOL_LIMIT = 8;
 const CLOSED_TRADES_LOOKBACK_DAYS = 56;
 const CLOSED_TRADES_PAGE_DAYS = 7;
+const TRADE_ACTIVITY_SYMBOL_LIMIT = 6;
+const TRADE_ACTIVITY_LOOKBACK_DAYS = 30;
+const TRADE_ACTIVITY_HISTORY_LOOKBACK_DAYS = 365;
+const TRADE_ACTIVITY_BACKFILL_DAYS = 14;
+const TRADE_ACTIVITY_LIMIT = 2000;
 
 let serverTimeOffset = 0;
 let serverTimeSyncedAt = 0;
@@ -447,6 +453,44 @@ function mergeClosedTrades(existingRows, incomingRows) {
     .slice(0, CLOSED_TRADES_LIMIT);
 }
 
+function readTradeActivityPayload() {
+  try {
+    if (!fs.existsSync(TRADE_ACTIVITY_FILE)) return { items: [], backfillCursor: 0 };
+    const payload = JSON.parse(fs.readFileSync(TRADE_ACTIVITY_FILE, "utf8"));
+    return {
+      backfillCursor: Number(payload?.backfillCursor) || 0,
+      items: (Array.isArray(payload?.items) ? payload.items : []).filter((item) => item?.symbol && Number(item?.time))
+    };
+  } catch (error) {
+    return { items: [], backfillCursor: 0 };
+  }
+}
+
+function writeTradeActivity(items, meta = {}) {
+  if (process.env.VERCEL) return;
+  try {
+    fs.writeFileSync(
+      TRADE_ACTIVITY_FILE,
+      `${JSON.stringify({ backfillCursor: Number(meta.backfillCursor) || 0, items: items.slice(0, TRADE_ACTIVITY_LIMIT) }, null, 2)}\n`,
+      "utf8"
+    );
+  } catch (error) {
+    console.warn("write trade activity failed:", error instanceof Error ? error.message : String(error));
+  }
+}
+
+function mergeTradeActivity(existingRows, incomingRows) {
+  const map = new Map();
+  for (const row of [...existingRows, ...incomingRows]) {
+    if (!row?.symbol || !Number(row?.time)) continue;
+    const key = row.id || `${row.symbol}|${row.time}|${row.price}|${row.side}|${row.quantity}|${row.amount}`;
+    map.set(key, { ...row, id: key });
+  }
+  return Array.from(map.values())
+    .sort((a, b) => Number(b.time || 0) - Number(a.time || 0))
+    .slice(0, TRADE_ACTIVITY_LIMIT);
+}
+
 function writeEquityHistory(items) {
   if (process.env.VERCEL) return;
   try {
@@ -705,6 +749,83 @@ function getFundingForWindow(incomeRows, symbol, startTime, endTime) {
     .reduce((sum, row) => sum + toNumber(row.pnlValue), 0);
 }
 
+function formatTradeDirection(trade) {
+  const side = String(trade.side || "").toUpperCase();
+  const positionSide = String(trade.positionSide || "").toUpperCase();
+  const hasRealizedPnl = Math.abs(toNumber(trade.realizedPnl)) > 0;
+
+  if (positionSide === "LONG") return side === "BUY" ? "买多" : "平多";
+  if (positionSide === "SHORT") return side === "SELL" ? "卖空" : "平空";
+  if (side === "BUY") return hasRealizedPnl ? "平空" : "买多";
+  if (side === "SELL") return hasRealizedPnl ? "平多" : "卖空";
+  return "--";
+}
+
+function normalizeTradeActivity(trade) {
+  const price = toNumber(trade.price);
+  const qty = toNumber(trade.qty);
+  const value = price * qty;
+
+  return {
+    id: trade.id,
+    time: trade.time,
+    symbol: trade.symbol,
+    price: toFixedDynamic(price, 6),
+    priceValue: price,
+    side: formatTradeDirection(trade),
+    quantity: toFixedDynamic(qty, 6),
+    quantityValue: qty,
+    amount: `${toFixedDynamic(value, 2)} USDT`,
+    amountValue: value
+  };
+}
+
+async function loadTradeActivity(incomeRows, positions, closedTrades, now) {
+  const payload = readTradeActivityPayload();
+  const oldestAllowed = Math.max(0, now - TRADE_ACTIVITY_HISTORY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const symbols = Array.from(
+    new Set([
+      ...(positions || []).map((row) => row.symbol),
+      ...(closedTrades || []).map((row) => row.symbol),
+      ...(incomeRows || [])
+        .filter((row) => /^[A-Z0-9]+USDT$/.test(row.symbol || "") && ["REALIZED_PNL", "COMMISSION"].includes(row.type))
+        .map((row) => row.symbol)
+    ].filter((symbol) => /^[A-Z0-9]+USDT$/.test(symbol || "")))
+  ).slice(0, TRADE_ACTIVITY_SYMBOL_LIMIT);
+
+  async function loadWindow(startTime, endTime) {
+    const rows = [];
+    for (const symbol of symbols) {
+      try {
+        const trades = await loadUserTrades(symbol, startTime, endTime);
+        rows.push(...trades.map(normalizeTradeActivity));
+      } catch (error) {
+        console.warn(`load trade activity failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    return rows;
+  }
+
+  const recentStartTime = Math.max(oldestAllowed, now - TRADE_ACTIVITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const rows = [];
+  rows.push(...(await loadWindow(recentStartTime, now)));
+
+  let backfillCursor = Number(payload.backfillCursor) || recentStartTime;
+  if (backfillCursor > oldestAllowed && symbols.length) {
+    const backfillEnd = Math.max(oldestAllowed, backfillCursor - 1);
+    const backfillStart = Math.max(oldestAllowed, backfillEnd - TRADE_ACTIVITY_BACKFILL_DAYS * 24 * 60 * 60 * 1000 + 1);
+    rows.push(...(await loadWindow(backfillStart, backfillEnd)));
+    backfillCursor = backfillStart;
+  }
+
+  const merged = mergeTradeActivity(payload.items, rows)
+    .filter((row) => row.time && row.priceValue && row.quantityValue)
+    .sort((a, b) => b.time - a.time)
+    .slice(0, TRADE_ACTIVITY_LIMIT);
+  writeTradeActivity(merged, { backfillCursor });
+  return merged.slice(0, 120);
+}
+
 function reconstructClosedTradesForSymbol(symbol, trades, incomeRows) {
   const records = [];
   const position = {
@@ -836,6 +957,35 @@ function getPreviewHistory(now) {
   ];
 }
 
+function getPreviewTradeActivity(now) {
+  return [
+    {
+      time: now - 12 * 60 * 1000,
+      symbol: "BTCUSDT",
+      price: "68,420.5",
+      side: "买多",
+      quantity: "0.084",
+      amount: "5,747.32 USDT"
+    },
+    {
+      time: now - 36 * 60 * 1000,
+      symbol: "ETHUSDT",
+      price: "3,756.8",
+      side: "卖空",
+      quantity: "1.25",
+      amount: "4,696.00 USDT"
+    },
+    {
+      time: now - 84 * 60 * 1000,
+      symbol: "SOLUSDT",
+      price: "167.42",
+      side: "平多",
+      quantity: "42",
+      amount: "7,031.64 USDT"
+    }
+  ];
+}
+
 function getPreviewAccountPayload(error) {
   const now = Date.now();
   const warning = error instanceof Error ? error.message : String(error || "");
@@ -894,6 +1044,7 @@ function getPreviewAccountPayload(error) {
       }
     ],
     history: getPreviewHistory(now),
+    tradeActivity: getPreviewTradeActivity(now),
     closedTrades: [
       {
         openTime: now - 74 * 60 * 1000,
@@ -932,6 +1083,7 @@ async function buildBinanceAccountPayload() {
   const now = Date.now();
   const incomeRows = await syncIncomeHistory(recentIncomeRows, now);
   const closedTrades = await loadClosedTrades(incomeRows, now);
+  const tradeActivity = await loadTradeActivity(incomeRows, positions, closedTrades, now);
 
   const totalWalletBalance = toNumber(account.totalWalletBalance || usdt.walletBalance);
   const totalMarginBalance = toNumber(account.totalMarginBalance || usdt.marginBalance);
@@ -973,6 +1125,7 @@ async function buildBinanceAccountPayload() {
     equityHistory,
     positions,
     history: incomeRows,
+    tradeActivity,
     closedTrades
   };
 }
