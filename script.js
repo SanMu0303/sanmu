@@ -4,6 +4,7 @@ const HOT_FEED_REFRESH_MS = 30000;
 const SECTOR_FEED_REFRESH_MS = 60000;
 const MACRO_CALENDAR_REFRESH_MS = 300000;
 const FRESH_NEWS_WINDOW_MS = 5 * 60 * 1000;
+const ALERT_REPEAT_SUPPRESS_MS = 60 * 60 * 1000;
 const CHART_POLL_REFRESH_MS = 5000;
 const REQUEST_TIMEOUT_MS = 8000;
 const KLINE_CONCURRENCY = 6;
@@ -146,6 +147,13 @@ const state = {
   fundingMode: "negative",
   positiveFunding: [],
   negativeFunding: [],
+  marketSort: {
+    key: "quoteVolume",
+    direction: "desc"
+  },
+  marketLongMetrics: new Map(),
+  marketLongMetricsLoading: false,
+  localBinanceProxyFailed: false,
   activeShockSymbols: new Set(),
   activeVolumeSymbols: new Set()
 };
@@ -211,6 +219,11 @@ function applyChartTheme(theme) {
         timeVisible: true
       }
     });
+  } else if (state.selectedChartSymbol && tradingviewPanel?.querySelector(".tv-tradingview-embed")) {
+    const matchedRow = state.rows.find((row) => row.symbol === state.selectedChartSymbol);
+    if (matchedRow) {
+      renderTradingViewChart(matchedRow);
+    }
   }
 }
 
@@ -378,6 +391,12 @@ function formatCompact(value, digits = 2) {
   }).format(value);
 }
 
+function formatMarketCap(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "--";
+  return formatCompact(num);
+}
+
 function formatCompactKMB(value, digits = 2) {
   if (!Number.isFinite(value)) {
     return "--";
@@ -450,6 +469,15 @@ function getChainName(baseAsset) {
 
 function getTradingViewPageUrl(symbol) {
   return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`BINANCE:${symbol}.P`)}`;
+}
+
+function getTradingViewWidgetSymbol(symbol) {
+  const cleaned = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return cleaned ? `BINANCE:${cleaned}.P` : "BINANCE:BTCUSDT.P";
+}
+
+function getTradingViewWidgetTheme() {
+  return getCurrentTheme() === "dark" ? "dark" : "light";
 }
 
 function getIntervalDurationMs(interval) {
@@ -668,43 +696,57 @@ function getFreshNewsClass(publishTime) {
 async function fetchJson(path, options = {}) {
   const { retries = 1, timeoutMs = REQUEST_TIMEOUT_MS } = options;
   let lastError = null;
+  const endpoints = getBinanceApiEndpoints(path);
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    for (const endpoint of endpoints) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
-    try {
-      const endpoint = getBinanceApiEndpoint(path);
-      const response = await fetch(endpoint, { signal: controller.signal });
-      window.clearTimeout(timer);
+      try {
+        const response = await fetch(endpoint, { signal: controller.signal });
+        window.clearTimeout(timer);
 
-      if (!response.ok) {
-        throw new Error(`请求失败: ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`请求失败: ${response.status}`);
+        }
+        return response.json();
+      } catch (error) {
+        window.clearTimeout(timer);
+        lastError = error;
+        if (endpoint.startsWith("http://127.0.0.1:8787")) {
+          state.localBinanceProxyFailed = true;
+        }
       }
-      return response.json();
-    } catch (error) {
-      window.clearTimeout(timer);
-      lastError = error;
-      if (attempt < retries) {
-        await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
-      }
+    }
+
+    if (attempt < retries) {
+      await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
     }
   }
 
   throw lastError || new Error("请求失败");
 }
 
-function getBinanceApiEndpoint(path) {
+function getBinanceApiEndpoints(path) {
   const isLocalPage =
     window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname);
   const proxyPath = `/api/binance-proxy?path=${encodeURIComponent(path)}`;
+  const apiOrigin = getConfiguredApiOrigin();
+  const endpoints = [];
 
   if (isLocalPage) {
-    return `http://127.0.0.1:8787${proxyPath}`;
+    if (!state.localBinanceProxyFailed) endpoints.push(`http://127.0.0.1:8787${proxyPath}`);
+    if (apiOrigin) endpoints.push(`${apiOrigin}${proxyPath}`);
+    return endpoints;
   }
 
-  const apiOrigin = getConfiguredApiOrigin();
-  return apiOrigin ? `${apiOrigin}${proxyPath}` : proxyPath;
+  endpoints.push(apiOrigin ? `${apiOrigin}${proxyPath}` : proxyPath);
+  return endpoints;
+}
+
+function getBinanceApiEndpoint(path) {
+  return getBinanceApiEndpoints(path)[0];
 }
 
 function getConfiguredApiOrigin() {
@@ -788,6 +830,123 @@ async function fetchIntervalMetrics(symbol) {
     change15m,
     ...kline15m
   };
+}
+
+function calculateChangeFromOpen(currentPrice, openPrice) {
+  const current = Number(currentPrice);
+  const open = Number(openPrice);
+  if (!Number.isFinite(current) || !Number.isFinite(open) || open <= 0) {
+    return null;
+  }
+  return ((current - open) / open) * 100;
+}
+
+async function fetchLongHorizonMetrics(row) {
+  const klines = await fetchJson(`/fapi/v1/klines?symbol=${row.symbol}&interval=1d&limit=370`, {
+    retries: 0,
+    timeoutMs: 12000
+  });
+  const currentPrice = Number(row.lastPrice || 0);
+  const now = new Date();
+  const yearStart = Date.UTC(now.getUTCFullYear(), 0, 1);
+
+  const open5d = Number(klines[Math.max(0, klines.length - 6)]?.[1]);
+  const open30d = Number(klines[Math.max(0, klines.length - 31)]?.[1]);
+  const ytdKline = klines.find((item) => Number(item?.[0]) >= yearStart) || klines[0];
+
+  return {
+    marketCap: state.marketLongMetrics.get(row.symbol)?.marketCap || "--",
+    marketCapValue: state.marketLongMetrics.get(row.symbol)?.marketCapValue || null,
+    change5d: calculateChangeFromOpen(currentPrice, open5d),
+    change30d: calculateChangeFromOpen(currentPrice, open30d),
+    changeYtd: calculateChangeFromOpen(currentPrice, Number(ytdKline?.[1]))
+  };
+}
+
+async function enrichMarketCaps(rows) {
+  try {
+    const pages = await Promise.all(
+      [1, 2, 3].map((page) =>
+        fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=${page}&sparkline=false`, {
+          headers: {
+            Accept: "application/json"
+          }
+        }).then((response) => {
+          if (!response.ok) throw new Error(`coingecko ${response.status}`);
+          return response.json();
+        })
+      )
+    );
+    const capBySymbol = new Map();
+    pages.flat().forEach((item) => {
+      const symbol = String(item.symbol || "").toUpperCase();
+      const marketCap = Number(item.market_cap || 0);
+      if (!symbol || !Number.isFinite(marketCap) || marketCap <= 0) return;
+      const existing = capBySymbol.get(symbol);
+      if (!existing || marketCap > existing.marketCapValue) {
+        capBySymbol.set(symbol, {
+          marketCap: formatMarketCap(marketCap),
+          marketCapValue: marketCap
+        });
+      }
+    });
+
+    rows.forEach((row) => {
+      const cap = capBySymbol.get(row.baseAsset);
+      if (!cap) return;
+      state.marketLongMetrics.set(row.symbol, {
+        ...(state.marketLongMetrics.get(row.symbol) || {}),
+        ...cap
+      });
+    });
+    renderMarketList(rows);
+  } catch (error) {
+    console.error("market cap enrichment failed", error);
+  }
+}
+
+async function enrichMarketLongMetrics(rows) {
+  if (state.marketLongMetricsLoading || !Array.isArray(rows) || !rows.length) {
+    return;
+  }
+
+  state.marketLongMetricsLoading = true;
+  const pendingRows = rows.filter((row) => {
+    const metrics = state.marketLongMetrics.get(row.symbol);
+    return !metrics || !Number.isFinite(Number(metrics.change30d));
+  });
+  const total = pendingRows.length;
+
+  try {
+    enrichMarketCaps(rows);
+    for (let index = 0; index < pendingRows.length; index += 12) {
+      const batch = pendingRows.slice(index, index + 12);
+      await mapWithConcurrency(batch, 3, async (row) => {
+        try {
+          state.marketLongMetrics.set(row.symbol, await fetchLongHorizonMetrics(row));
+        } catch (error) {
+          console.error(`long metrics failed for ${row.symbol}`, error);
+          state.marketLongMetrics.set(row.symbol, {
+            marketCap: "--",
+            marketCapValue: null,
+            change5d: null,
+            change30d: null,
+            changeYtd: null
+          });
+        }
+      });
+      if (marketListStatus) {
+        marketListStatus.textContent = `长周期数据补全 ${Math.min(index + batch.length, total)}/${total}`;
+      }
+      renderMarketList(rows);
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+  } finally {
+    state.marketLongMetricsLoading = false;
+    if (marketListStatus) {
+      marketListStatus.textContent = `已加载 ${rows.length} 个USDT永续合约`;
+    }
+  }
 }
 
 async function mapWithConcurrency(items, limit, worker) {
@@ -1017,56 +1176,129 @@ function renderMarketList(rows = state.rows) {
   }
 
   const sourceRows = Array.isArray(rows) ? rows : [];
+  const headerColumns = [
+    ["rank", "序号"],
+    ["baseAsset", "标的"],
+    ["lastPrice", "最新价格"],
+    ["change24h", "24小时涨跌幅度"],
+    ["quoteVolume", "成交量"],
+    ["change5m", "5分钟涨跌"],
+    ["change1h", "1小时涨跌"],
+    ["fundingRate", "资金费率（资金费率/时间）"],
+    ["annualFunding", "年化资金费率"],
+    ["marketCap", "市值"],
+    ["change5d", "5日涨幅"],
+    ["change30d", "30日涨幅"],
+    ["changeYtd", "年初至今"]
+  ];
+  const headerHtml = `
+    <div class="binance-market-row binance-market-head">
+      ${headerColumns
+        .map(([key, label]) => `<button type="button" data-market-sort="${key}">${label}${getMarketSortMark(key)}</button>`)
+        .join("")}
+    </div>
+  `;
+
   if (marketListStatus) {
-    marketListStatus.textContent = sourceRows.length ? `已加载 ${sourceRows.length} 个USDT永续合约` : "等待币安合约数据";
+    if (!state.marketLongMetricsLoading) {
+      marketListStatus.textContent = sourceRows.length ? `已加载 ${sourceRows.length} 个USDT永续合约` : "等待币安合约数据";
+    }
   }
 
   if (!sourceRows.length) {
-    marketListTable.innerHTML = `<div class="market-list-empty">当前未能拉取币安合约数据，请检查网络或接口可访问性。</div>`;
+    marketListTable.innerHTML = `
+      <div class="binance-market-table-wrap">
+        <div class="binance-market-table">
+          ${headerHtml}
+          <div class="market-list-empty">当前未能拉取币安合约数据，请检查网络或接口可访问性。</div>
+        </div>
+      </div>
+    `;
     return;
   }
 
-  const sortedRows = [...sourceRows].sort((a, b) => Number(b.quoteVolume || 0) - Number(a.quoteVolume || 0));
+  const sortedRows = sortMarketRows(sourceRows);
+
   marketListTable.innerHTML = `
     <div class="binance-market-table-wrap">
       <div class="binance-market-table">
-        <div class="binance-market-row binance-market-head">
-          <div>序号</div>
-          <div>标的</div>
-          <div>最新价格</div>
-          <div>24小时涨跌幅度</div>
-          <div>成交量（USDT计价）</div>
-          <div>5分钟涨跌</div>
-          <div>1小时涨跌</div>
-          <div>市值</div>
-          <div>5日涨幅</div>
-          <div>30日涨幅</div>
-          <div>年初至今</div>
-        </div>
+        ${headerHtml}
         <div class="binance-market-body">
           ${sortedRows
             .map(
-              (row, index) => `
+              (row) => {
+                const longMetrics = state.marketLongMetrics.get(row.symbol) || {};
+                return `
                 <button class="binance-market-row binance-market-item symbol-trigger" type="button" data-chart-symbol="${row.symbol}">
-                  <div>${index + 1}</div>
+                  <div>${sourceRows.findIndex((item) => item.symbol === row.symbol) + 1}</div>
                   <div><strong>${row.baseAsset}</strong><span>${row.symbol}</span></div>
                   <div>${formatPrice(row.lastPrice)}</div>
                   <div class="${getDeltaClass(row.change24h)}">${formatPercent(row.change24h)}</div>
                   <div>${formatCompact(row.quoteVolume)} USDT</div>
                   <div class="${getDeltaClass(row.change5m)}">${formatPercent(row.change5m)}</div>
                   <div class="${getDeltaClass(row.change1h)}">${formatPercent(row.change1h)}</div>
-                  <div>--</div>
-                  <div>--</div>
-                  <div>--</div>
-                  <div>--</div>
+                  <div class="${getDeltaClass(row.fundingRate)}">${formatFunding(row.fundingRate)}/${row.fundingCountdownText || formatFundingInterval(row.fundingIntervalHours || 8)}</div>
+                  <div class="${getDeltaClass(row.fundingRate)}">${annualizeFunding(row.fundingRate)}</div>
+                  <div>${longMetrics.marketCap || "--"}</div>
+                  <div class="${getDeltaClass(longMetrics.change5d)}">${formatOptionalPercent(longMetrics.change5d)}</div>
+                  <div class="${getDeltaClass(longMetrics.change30d)}">${formatOptionalPercent(longMetrics.change30d)}</div>
+                  <div class="${getDeltaClass(longMetrics.changeYtd)}">${formatOptionalPercent(longMetrics.changeYtd)}</div>
                 </button>
-              `
+              `;
+              }
             )
             .join("")}
         </div>
       </div>
     </div>
   `;
+}
+
+function getMarketSortMark(key) {
+  if (state.marketSort.key !== key) return "";
+  return state.marketSort.direction === "asc" ? " ↑" : " ↓";
+}
+
+function getMarketSortValue(row, key) {
+  const longMetrics = state.marketLongMetrics.get(row.symbol) || {};
+  const valueMap = {
+    rank: state.rows.findIndex((item) => item.symbol === row.symbol) + 1,
+    baseAsset: row.baseAsset,
+    lastPrice: row.lastPrice,
+    change24h: row.change24h,
+    quoteVolume: row.quoteVolume,
+    change5m: row.change5m,
+    change1h: row.change1h,
+    fundingRate: row.fundingRate,
+    annualFunding: row.fundingRate,
+    marketCap: longMetrics.marketCapValue,
+    change5d: longMetrics.change5d,
+    change30d: longMetrics.change30d,
+    changeYtd: longMetrics.changeYtd
+  };
+  return valueMap[key];
+}
+
+function sortMarketRows(rows) {
+  const { key, direction } = state.marketSort;
+  const modifier = direction === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = getMarketSortValue(a, key);
+    const bv = getMarketSortValue(b, key);
+    if (typeof av === "string" || typeof bv === "string") {
+      return String(av || "").localeCompare(String(bv || "")) * modifier;
+    }
+    const an = Number(av);
+    const bn = Number(bv);
+    if (!Number.isFinite(an) && !Number.isFinite(bn)) return 0;
+    if (!Number.isFinite(an)) return 1;
+    if (!Number.isFinite(bn)) return -1;
+    return (an - bn) * modifier;
+  });
+}
+
+function formatOptionalPercent(value) {
+  return Number.isFinite(Number(value)) ? formatPercent(value) : "--";
 }
 
 function renderVolumeTopStrip(rows) {
@@ -1103,31 +1335,40 @@ function renderTradingViewChart(row) {
     return;
   }
 
+  stopChartRealtime();
+  const widgetSymbol = getTradingViewWidgetSymbol(row.symbol);
   tradingviewPanel.innerHTML = `
-    <div class="tv-single">
-      <div class="tv-toolbar">
-        <div class="tv-header-block">
-          <span class="tv-title">${row.baseAsset} 永续</span>
-          <span class="tv-subtitle">${row.symbol} · 站内K线</span>
-        </div>
-        <div class="tv-intervals">
-          ${["5m", "15m", "1h", "4h", "1d"].map((interval) => `<button class="tv-interval-btn ${state.selectedChartInterval === interval ? "active" : ""}" type="button" data-chart-interval="${interval}">${interval.toUpperCase()}</button>`).join("")}
-        </div>
-      </div>
-
-      <div class="tv-chart-wrap">
-        <div class="chart-root">
-          <div class="chart-canvas" id="chartCanvas"></div>
-        </div>
-      </div>
-
-      <div class="tv-link-row">
-        <a class="tv-button" href="${getTradingViewPageUrl(row.symbol)}" target="_blank" rel="noreferrer">打开完整K线</a>
-        <span class="tv-subtitle">若图表未加载，可用此按钮跳转 TradingView 兜底查看。</span>
+    <div class="tv-single tv-tradingview-embed">
+      <div class="tradingview-widget-container">
+        <div class="tradingview-widget-container__widget"></div>
+        <a class="kline-open-fallback" href="${getTradingViewPageUrl(row.symbol)}" target="_blank" rel="noopener noreferrer">打开 TradingView 完整图表</a>
       </div>
     </div>
   `;
-  loadEmbeddedChart(row.symbol, state.selectedChartInterval);
+
+  const script = document.createElement("script");
+  script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+  script.async = true;
+  script.textContent = JSON.stringify({
+    autosize: true,
+    symbol: widgetSymbol,
+    interval: "15",
+    timezone: "Asia/Shanghai",
+    theme: getTradingViewWidgetTheme(),
+    style: "1",
+    locale: "zh_CN",
+    allow_symbol_change: true,
+    calendar: false,
+    details: true,
+    hide_side_toolbar: false,
+    hide_top_toolbar: false,
+    hotlist: false,
+    save_image: true,
+    studies: ["Volume@tv-basicstudies"],
+    support_host: "https://www.tradingview.com",
+    withdateranges: true
+  });
+  tradingviewPanel.querySelector(".tradingview-widget-container")?.appendChild(script);
 }
 
 async function loadEmbeddedChart(symbol, interval) {
@@ -1240,7 +1481,7 @@ async function loadEmbeddedChart(symbol, interval) {
     startChartRealtime(symbol, interval);
   } catch (error) {
     console.error(error);
-    container.innerHTML = `<div class="tv-fallback">站内K线加载失败，请使用下方按钮打开完整 TradingView</div>`;
+    container.innerHTML = `<div class="tv-fallback">K线加载失败，请打开完整 TradingView 查看</div>`;
   }
 }
 
@@ -1477,7 +1718,7 @@ function updateHistory(records, type) {
 function dedupeAlertHistory(items) {
   const seen = new Set();
   return items.filter((item) => {
-    const key = [item.type || "", item.chartSymbol || item.symbol || "", item.timeMs || item.timeText || "", item.alertValue || item.detail || ""].join("|");
+    const key = [item.type || "", item.chartSymbol || item.symbol || "", item.alertValue || item.detail || ""].join("|");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -1486,11 +1727,21 @@ function dedupeAlertHistory(items) {
 
 function mergeAlertRows(rows, type) {
   const historyKey = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
-  const liveItems = rows.map((row) => normalizeLiveAlertRow(row, type));
   const historyItems = loadHistory(historyKey).map((item) => normalizeHistoryAlertRow(item, type));
-  return dedupeAlertHistory([...liveItems, ...historyItems])
+  return dedupeAlertHistory(historyItems)
     .sort((a, b) => Number(b.timeMs || 0) - Number(a.timeMs || 0))
     .slice(0, 50);
+}
+
+function hasRecentStoredAlert(row, type) {
+  const key = type === "shock" ? SHOCK_HISTORY_KEY : VOLUME_HISTORY_KEY;
+  const now = Date.now();
+  return loadHistory(key).some((item) => {
+    if ((item.type || type) !== type) return false;
+    if ((item.chartSymbol || "") !== row.symbol) return false;
+    const timeMs = Number(item.timeMs || 0);
+    return timeMs > 0 && now - timeMs <= ALERT_REPEAT_SUPPRESS_MS;
+  });
 }
 
 function normalizeLiveAlertRow(row, type) {
@@ -2401,7 +2652,7 @@ async function loadDashboard() {
       .slice(0, 12);
 
     const shockRecords = shocks
-      .filter((row) => !state.activeShockSymbols.has(row.symbol))
+      .filter((row) => !state.activeShockSymbols.has(row.symbol) && !hasRecentStoredAlert(row, "shock"))
       .map((row) => ({
         type: "shock",
         symbol: row.baseAsset,
@@ -2416,7 +2667,7 @@ async function loadDashboard() {
         timeText: formatShortDateTime(new Date())
       }));
     const volumeRecords = volumeAlerts
-      .filter((row) => !state.activeVolumeSymbols.has(row.symbol))
+      .filter((row) => !state.activeVolumeSymbols.has(row.symbol) && !hasRecentStoredAlert(row, "volume"))
       .map((row) => ({
         type: "volume",
         symbol: row.baseAsset,
@@ -2446,6 +2697,7 @@ async function loadDashboard() {
     renderVolumeTopStrip(volumeTop);
     renderHeatRanking();
     renderMarketList(detailedRows);
+    enrichMarketLongMetrics(detailedRows);
     ensureChartSelection(detailedRows);
     if (shockRecords.length) {
       updateHistory(shockRecords, "shock");
@@ -2560,6 +2812,19 @@ document.addEventListener("click", (event) => {
         button.classList.toggle("active", button === newsTrigger);
       });
       renderNewsHubFeed();
+    }
+    return;
+  }
+
+  const marketSortTrigger = event.target.closest("[data-market-sort]");
+  if (marketSortTrigger) {
+    const key = marketSortTrigger.getAttribute("data-market-sort");
+    if (key) {
+      state.marketSort = {
+        key,
+        direction: state.marketSort.key === key && state.marketSort.direction === "desc" ? "asc" : "desc"
+      };
+      renderMarketList();
     }
     return;
   }

@@ -2609,6 +2609,26 @@ body.theme-dark .history-block {
   background: #fff;
 }
 
+.tv-tradingview-embed,
+.tv-tradingview-embed .tradingview-widget-container,
+.tv-tradingview-embed .tradingview-widget-container__widget {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.tv-tradingview-embed .tradingview-widget-container {
+  position: relative;
+}
+
+.tv-tradingview-embed iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 .tv-toolbar {
   display: flex;
   align-items: center;
@@ -3196,12 +3216,12 @@ body.theme-dark .alert-red {
 .binance-market-table {
   display: grid;
   gap: 4px;
-  min-width: 1320px;
+  min-width: 1580px;
 }
 
 .binance-market-row {
   display: grid;
-  grid-template-columns: 44px minmax(94px, 1fr) minmax(86px, 0.9fr) minmax(104px, 0.9fr) minmax(132px, 1.12fr) minmax(86px, 0.8fr) minmax(86px, 0.8fr) minmax(92px, 0.8fr) minmax(86px, 0.8fr) minmax(92px, 0.8fr) minmax(92px, 0.8fr);
+  grid-template-columns: 44px minmax(94px, 1fr) minmax(86px, 0.85fr) minmax(104px, 0.86fr) minmax(118px, 0.98fr) minmax(86px, 0.78fr) minmax(86px, 0.78fr) minmax(142px, 1.12fr) minmax(112px, 0.9fr) minmax(92px, 0.78fr) minmax(86px, 0.76fr) minmax(92px, 0.76fr) minmax(92px, 0.76fr);
   align-items: center;
   gap: 8px;
 }
@@ -3219,6 +3239,34 @@ body.theme-dark .alert-red {
   font-size: 10px;
   font-weight: 900;
   line-height: 1.15;
+}
+
+.binance-market-head button {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.binance-market-head button:hover {
+  color: var(--accent);
+}
+
+.binance-market-row > * {
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.binance-market-row > *:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 
 .binance-market-body {
