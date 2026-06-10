@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bitget">
+  <rect width="512" height="512" fill="#12dce8"/>
+  <path d="M214 94h86L181 212l91 91h-86l-74-74c-10-10-10-26 0-36L214 94Z" fill="#050607"/>
+  <path d="M240 211h83l78 78c10 10 10 26 0 36L298 420h-86l119-118-91-91Z" fill="#050607"/>
+</svg>

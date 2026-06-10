@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bybit">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="48%" r="72%">
+      <stop offset="0%" stop-color="#20272b"/>
+      <stop offset="100%" stop-color="#11161a"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <text x="60" y="323" font-family="Arial Black, Impact, Helvetica, Arial, sans-serif" font-size="116" font-weight="900" letter-spacing="-7" fill="#fff">BYB</text>
+  <rect x="335" y="195" width="23" height="107" fill="#f5a400"/>
+  <text x="378" y="323" font-family="Arial Black, Impact, Helvetica, Arial, sans-serif" font-size="116" font-weight="900" letter-spacing="-7" fill="#fff">T</text>
+</svg>

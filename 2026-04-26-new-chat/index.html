@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>热度与异动榜单</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="eyebrow">Alpha Monitor</p>
+            <h1>币安合约观察台</h1>
+          </div>
+        </div>
+        <div class="toolbar-meta">
+          <button class="ghost-button" id="refreshButton">刷新数据</button>
+          <span id="fetchStatus">等待加载</span>
+          <span id="updateTime"></span>
+        </div>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="board-panel" id="heatPanel">
+          <div class="panel-header">
+            <h2>币安合约综合热度榜前10</h2>
+          </div>
+          <div class="panel-body" id="heatTable"></div>
+        </section>
+
+        <section class="board-panel" id="chainPanel">
+          <div class="panel-header">
+            <h2>TradingView 快捷入口</h2>
+          </div>
+          <div class="panel-body tradingview-panel" id="tradingviewPanel"></div>
+        </section>
+
+        <aside class="side-panel">
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>价格异动</h2>
+            </div>
+            <div class="panel-body" id="shockList"></div>
+          </div>
+          <div class="divider"></div>
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>异常放量</h2>
+            </div>
+            <div class="panel-body" id="volumeAlertList"></div>
+          </div>
+        </aside>
+
+        <section class="stack-panel">
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>币安涨幅榜 top5</h2>
+            </div>
+            <div class="panel-body" id="gainersTable"></div>
+          </div>
+          <div class="divider"></div>
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>币安合约跌幅榜 top5</h2>
+            </div>
+            <div class="panel-body" id="losersTable"></div>
+          </div>
+        </section>
+
+        <section class="stack-panel">
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>币安合约正资金费率 top5</h2>
+            </div>
+            <div class="panel-body" id="positiveFundingTable"></div>
+          </div>
+          <div class="divider"></div>
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>币安合约负资金费率 top5</h2>
+            </div>
+            <div class="panel-body" id="negativeFundingTable"></div>
+          </div>
+        </section>
+      </main>
+
+      <section class="bottom-strip">
+        <section class="bottom-panel">
+          <div class="panel-header">
+            <h2>热点事件</h2>
+          </div>
+          <div class="panel-body compact-feed" id="hotEventFeed"></div>
+        </section>
+
+        <section class="bottom-panel">
+          <div class="panel-header">
+            <h2>上新通知</h2>
+          </div>
+          <div class="panel-body compact-feed" id="listingFeed"></div>
+        </section>
+      </section>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./script.js"></script>
+  </body>
+</html>
