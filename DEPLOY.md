@@ -107,6 +107,19 @@
 
 - `videos.json`
 
+注意：`videos.json` 是线上视频数据文件，不要把本地空文件反复上传覆盖 GitHub。项目已经把 `videos.json` 加入 `.gitignore`，仓库里只保留 `videos.example.json` 作为格式模板。
+
+如果你的 GitHub 仓库之前已经提交过 `videos.json`，在本地执行一次：
+
+```bash
+git rm --cached videos.json
+git add .gitignore videos.example.json
+git commit -m "Ignore local video data file"
+git push
+```
+
+之后网页后台新增的视频会继续写入 GitHub 里的数据文件；你上传代码时，不会再用本地空的 `videos.json` 覆盖它。
+
 部署到 Vercel 后，推荐把视频列表写回 GitHub 仓库文件。需要在 Vercel 项目的 Environment Variables 里设置：
 
 - `GITHUB_TOKEN`：GitHub fine-grained token，需要有当前仓库 Contents 读写权限

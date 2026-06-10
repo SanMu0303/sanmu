@@ -9,8 +9,8 @@ const LOCAL_ENV_FILES = [
   path.join(__dirname, ".env")
 ];
 const DEFAULT_FILE_PATH = "videos.json";
-const DEFAULT_VIDEO_CATEGORY = "视频课程";
-const DEFAULT_VIDEO_CATEGORIES = ["视频课程", "技术指标", "形态分析", "交易策略", "技术模型"];
+const DEFAULT_VIDEO_CATEGORIES = [];
+const LEGACY_DEFAULT_CATEGORIES = new Set(["视频课程", "技术指标", "形态分析", "交易策略", "技术模型"]);
 
 function isReadonlyServerlessRuntime() {
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || __dirname.startsWith("/var/task"));
@@ -50,7 +50,7 @@ function normalizeVideo(video) {
   return {
     id,
     title: String(video?.title || `YouTube 视频 ${id}`).trim(),
-    category: String(video?.category || DEFAULT_VIDEO_CATEGORY).trim() || DEFAULT_VIDEO_CATEGORY,
+    category: String(video?.category || "").trim(),
     access,
     url: `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
     createdAt: Number(video?.createdAt) || Date.now(),
@@ -161,13 +161,15 @@ function normalizeStore(payload) {
     .map(normalizeVideo)
     .filter(Boolean)
     .sort((a, b) => b.createdAt - a.createdAt);
-  const managedCategories = Array.isArray(payload?.categories) ? payload.categories : DEFAULT_VIDEO_CATEGORIES;
+  const itemCategories = new Set(items.map((item) => item.category).filter(Boolean));
+  const managedCategories = (Array.isArray(payload?.categories) ? payload.categories : [])
+    .map((category) => String(category || "").trim())
+    .filter((category) => category && (!LEGACY_DEFAULT_CATEGORIES.has(category) || itemCategories.has(category)));
   const categories = Array.from(
     new Set([
-      DEFAULT_VIDEO_CATEGORY,
       ...managedCategories,
-      ...items.map((item) => item.category)
-    ].map((category) => String(category || "").trim()).filter(Boolean))
+      ...itemCategories
+    ])
   );
 
   return { categories, items };
@@ -343,22 +345,22 @@ async function addCategory(category) {
   const store = await readVideoStore();
   return writeVideoStore({
     ...store,
-    categories: Array.from(new Set([...(store.categories || DEFAULT_VIDEO_CATEGORIES), name]))
+    categories: Array.from(new Set([...(store.categories || []), name]))
   });
 }
 
 async function deleteCategory(category) {
   const name = String(category || "").trim();
-  if (!name || name === DEFAULT_VIDEO_CATEGORY) {
-    const error = new Error("default category cannot be deleted");
+  if (!name) {
+    const error = new Error("invalid category name");
     error.statusCode = 400;
     throw error;
   }
 
   const store = await readVideoStore();
   return writeVideoStore({
-    categories: (store.categories || DEFAULT_VIDEO_CATEGORIES).filter((item) => item !== name),
-    items: store.items.map((item) => (item.category === name ? { ...item, category: DEFAULT_VIDEO_CATEGORY } : item))
+    categories: (store.categories || []).filter((item) => item !== name),
+    items: store.items.map((item) => (item.category === name ? { ...item, category: "" } : item))
   });
 }
 

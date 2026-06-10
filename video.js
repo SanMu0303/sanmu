@@ -2,8 +2,10 @@
   "use strict";
 
   const STORAGE_KEY = "sanmu.video.library.v1";
-  const DEFAULT_CATEGORIES = ["视频课程", "技术指标", "形态分析", "交易策略", "技术模型"];
-  const DEFAULT_CATEGORY = "视频课程";
+  const DEFAULT_CATEGORIES = [];
+  const DEFAULT_CATEGORY = "";
+  const UNCATEGORIZED_LABEL = "未分类";
+  const LEGACY_DEFAULT_CATEGORIES = new Set(["视频课程", "技术指标", "形态分析", "交易策略", "技术模型"]);
   const DEFAULT_VIDEOS = [];
 
   const els = {
@@ -52,7 +54,7 @@
     } catch (error) {
       console.warn("failed to load video library", error);
     }
-    return normalizeStore({ categories: DEFAULT_CATEGORIES, items: DEFAULT_VIDEOS });
+    return normalizeStore({ categories: [], items: DEFAULT_VIDEOS });
   }
 
   function saveCachedStore() {
@@ -64,18 +66,20 @@
       .filter((video) => video?.id)
       .map((video) => ({
         ...video,
-        category: String(video.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY,
+        category: String(video.category || "").trim(),
         access: normalizeVideoAccess(video.access),
         durationSeconds: normalizeDurationSeconds(video.durationSeconds || video.duration),
         duration: formatDurationLabel(video.durationSeconds || video.duration)
       }))
       .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-    const managedCategories = Array.isArray(payload?.categories) ? payload.categories : DEFAULT_CATEGORIES;
+    const itemCategories = new Set(items.map(getVideoCategory).filter(Boolean));
+    const managedCategories = (Array.isArray(payload?.categories) ? payload.categories : [])
+      .map((category) => String(category || "").trim())
+      .filter((category) => category && (!LEGACY_DEFAULT_CATEGORIES.has(category) || itemCategories.has(category)));
     const categoryItems = Array.from(new Set([
-      DEFAULT_CATEGORY,
       ...managedCategories,
-      ...items.map(getVideoCategory)
-    ].map((category) => String(category || "").trim()).filter(Boolean)));
+      ...itemCategories
+    ]));
 
     return {
       categories: categoryItems,
@@ -387,11 +391,15 @@
   }
 
   function getVideoCategory(video) {
-    return String(video?.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY;
+    return String(video?.category || "").trim();
+  }
+
+  function getVideoCategoryLabel(video) {
+    return getVideoCategory(video) || UNCATEGORIZED_LABEL;
   }
 
   function getCategories() {
-    return Array.from(new Set([DEFAULT_CATEGORY, ...categories, ...videos.map(getVideoCategory)])).filter(Boolean);
+    return Array.from(new Set([...categories, ...videos.map(getVideoCategory)])).filter(Boolean);
   }
 
   function getCategoryCounts() {
@@ -453,7 +461,11 @@
     setStatus("正在读取 YouTube 视频信息...");
     const meta = await fetchYoutubeMeta(id);
     const title = els.titleInput?.value.trim() || meta.title || `YouTube 视频 ${id}`;
-    const category = els.newCategoryInput?.value.trim() || els.categorySelect?.value || DEFAULT_CATEGORY;
+    const category = els.newCategoryInput?.value.trim() || els.categorySelect?.value || "";
+    if (!category) {
+      setStatus("请先选择视频类型，或填写新建板块。", true);
+      return;
+    }
     const access = normalizeVideoAccess(els.accessSelect?.value || "free");
     const durationSeconds = normalizeDurationSeconds(meta.durationSeconds || meta.duration);
     const video = {
@@ -553,7 +565,7 @@
         const githubStore = await fetchGithubClientFile();
         payload = await saveGithubClientStore({
           ...githubStore.store,
-          categories: Array.from(new Set([...(githubStore.store.categories || DEFAULT_CATEGORIES), name]))
+          categories: Array.from(new Set([...(githubStore.store.categories || []), name]))
         });
       }
       const store = normalizeStore(payload);
@@ -569,15 +581,15 @@
   }
 
   async function deleteCategory(name) {
-    if (!name || name === DEFAULT_CATEGORY) {
-      setStatus("默认视频类型不能删除。", true);
+    if (!name) {
+      setStatus("视频类型无效，无法删除。", true);
       return;
     }
 
     const count = getCategoryCounts()[name] || 0;
     const confirmed = window.confirm(
       count
-        ? `确定删除「${name}」视频类型吗？\n\n该类型下有 ${count} 个视频，删除后会自动归入「${DEFAULT_CATEGORY}」。`
+        ? `确定删除「${name}」视频类型吗？\n\n该类型下有 ${count} 个视频，删除后会取消类型归属，显示为「${UNCATEGORIZED_LABEL}」。`
         : `确定删除「${name}」视频类型吗？`
     );
     if (!confirmed) {
@@ -596,15 +608,15 @@
         saveGithubClientConfig();
         const githubStore = await fetchGithubClientFile();
         payload = await saveGithubClientStore({
-          categories: (githubStore.store.categories || DEFAULT_CATEGORIES).filter((category) => category !== name),
-          items: githubStore.store.items.map((video) => video.category === name ? { ...video, category: DEFAULT_CATEGORY } : video)
+          categories: (githubStore.store.categories || []).filter((category) => category !== name),
+          items: githubStore.store.items.map((video) => video.category === name ? { ...video, category: "" } : video)
         });
       }
       const store = normalizeStore(payload);
       categories = store.categories;
       videos = store.items;
       saveCachedStore();
-      setStatus(count ? `已删除「${name}」，${count} 个视频已归入「${DEFAULT_CATEGORY}」。` : `已删除「${name}」。`);
+      setStatus(count ? `已删除「${name}」，${count} 个视频已显示为「${UNCATEGORIZED_LABEL}」。` : `已删除「${name}」。`);
       render();
     } catch (error) {
       setStatus(`删除失败：${error.message}`, true);
@@ -632,7 +644,7 @@
             </span>
             <span>
               <strong>${escapeHtml(video.title)}</strong>
-              <small>${getVideoCategory(video)} · ${getVideoAccessLabel(video)} · 26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
+              <small>${getVideoCategoryLabel(video)} · ${getVideoAccessLabel(video)} · 26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
             </span>
           </button>
           ${isAdmin ? `
@@ -664,7 +676,7 @@
     if (els.previewCard) els.previewCard.hidden = false;
     if (els.previewThumb) els.previewThumb.src = getThumbUrl(selected.id);
     if (els.previewTitle) els.previewTitle.textContent = selected.title;
-    if (els.previewMeta) els.previewMeta.textContent = `${formatDate(selected.createdAt)} · ${getVideoCategory(selected)} · ${getVideoAccessLabel(selected)} · ${getVideoDurationLabel(selected)} · YouTube`;
+    if (els.previewMeta) els.previewMeta.textContent = `${formatDate(selected.createdAt)} · ${getVideoCategoryLabel(selected)} · ${getVideoAccessLabel(selected)} · ${getVideoDurationLabel(selected)} · YouTube`;
   }
 
   function render() {
@@ -679,11 +691,14 @@
 
   function renderCategorySelect() {
     if (!els.categorySelect) return;
-    const current = els.categorySelect.value || DEFAULT_CATEGORY;
-    els.categorySelect.innerHTML = getCategories()
-      .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    const current = els.categorySelect.value || "";
+    const categoryItems = getCategories();
+    els.categorySelect.innerHTML = [
+      `<option value="">请选择类型</option>`,
+      ...categoryItems.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    ]
       .join("");
-    els.categorySelect.value = getCategories().includes(current) ? current : DEFAULT_CATEGORY;
+    els.categorySelect.value = categoryItems.includes(current) ? current : "";
   }
 
   function renderTypes() {
@@ -729,7 +744,7 @@
         <div class="video-category-manage-item">
           <span>${escapeHtml(category)}</span>
           <strong>${counts[category] || 0} 个视频</strong>
-          <button type="button" data-category-action="delete" data-category-name="${escapeHtml(category)}"${category === DEFAULT_CATEGORY ? " disabled" : ""}>删除</button>
+          <button type="button" data-category-action="delete" data-category-name="${escapeHtml(category)}">删除</button>
         </div>
       `)
       .join("");
@@ -749,7 +764,7 @@
           <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
           <span>
             <strong>${escapeHtml(video.title)}</strong>
-            <small>${getVideoCategory(video)} · ${getVideoAccessLabel(video)} · ${getVideoDurationLabel(video)} · ${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
+            <small>${getVideoCategoryLabel(video)} · ${getVideoAccessLabel(video)} · ${getVideoDurationLabel(video)} · ${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
           </span>
           ${index === 0 ? "<em>NEW</em>" : ""}
         </button>
