@@ -1,17 +1,6 @@
 {
   "categories": [
-    "视频课程",
-    "交易策略",
-    "技术模型",
-    "行情分析"
+    "视频课程"
   ],
-  "items": [
-    {
-      "id": "M_4uEYECAa0",
-      "title": "6/10 「BTC 纳指 黄金」",
-      "category": "行情分析",
-      "url": "https://www.youtube.com/watch?v=M_4uEYECAa0",
-      "createdAt": 1781072688954
-    }
-  ]
+  "items": []
 }

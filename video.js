@@ -10,6 +10,7 @@
     urlInput: document.getElementById("youtubeUrlInput"),
     titleInput: document.getElementById("videoTitleInput"),
     categorySelect: document.getElementById("videoCategorySelect"),
+    accessSelect: document.getElementById("videoAccessSelect"),
     newCategoryInput: document.getElementById("videoNewCategoryInput"),
     managedCategoryInput: document.getElementById("videoManagedCategoryInput"),
     addCategoryButton: document.getElementById("addVideoCategoryButton"),
@@ -30,6 +31,7 @@
     openSelectedButton: document.getElementById("openSelectedVideoButton"),
     recentList: document.getElementById("videoRecentList"),
     typeList: document.getElementById("videoTypeList"),
+    accessList: document.getElementById("videoAccessList"),
     categoryPageTitle: document.getElementById("videoCategoryPageTitle"),
     categoryHeading: document.getElementById("videoCategoryHeading"),
     categorySubtitle: document.getElementById("videoCategorySubtitle")
@@ -40,6 +42,7 @@
   let categories = [...DEFAULT_CATEGORIES];
   let videos = [];
   let selectedId = "";
+  const durationLookupQueue = new Set();
 
   function loadCachedStore() {
     try {
@@ -61,7 +64,10 @@
       .filter((video) => video?.id)
       .map((video) => ({
         ...video,
-        category: String(video.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY
+        category: String(video.category || DEFAULT_CATEGORY).trim() || DEFAULT_CATEGORY,
+        access: normalizeVideoAccess(video.access),
+        durationSeconds: normalizeDurationSeconds(video.durationSeconds || video.duration),
+        duration: formatDurationLabel(video.durationSeconds || video.duration)
       }))
       .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
     const managedCategories = Array.isArray(payload?.categories) ? payload.categories : DEFAULT_CATEGORIES;
@@ -95,6 +101,10 @@
   function getCategoriesEndpoint(category = "") {
     const url = `${getApiOrigin()}/api/video-categories`;
     return category ? `${url}?category=${encodeURIComponent(category)}` : url;
+  }
+
+  function getYoutubeMetaEndpoint(id) {
+    return `${getApiOrigin()}/api/youtube-video-meta?id=${encodeURIComponent(id)}`;
   }
 
   function getGithubClientConfig() {
@@ -239,6 +249,7 @@
       console.warn("failed to load persistent videos", error);
     }
     render();
+    hydrateMissingDurations();
   }
 
   function getYoutubeId(value) {
@@ -286,12 +297,93 @@
     return `${month}/${day} ${hours}:${minutes}`;
   }
 
+  function normalizeDurationSeconds(value) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.round(value);
+    }
+
+    const text = String(value || "").trim();
+    if (!text) return 0;
+    if (/^\d+$/.test(text)) return Number(text);
+    if (!/^\d{1,2}(:\d{1,2}){1,2}$/.test(text)) return 0;
+
+    return text.split(":").map(Number).reduce((total, part) => total * 60 + part, 0);
+  }
+
+  function formatDurationLabel(value) {
+    const seconds = normalizeDurationSeconds(value);
+    if (!seconds) return "";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainSeconds = seconds % 60;
+    if (hours) return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+    return `${minutes}:${String(remainSeconds).padStart(2, "0")}`;
+  }
+
+  function getVideoDurationLabel(video) {
+    return formatDurationLabel(video?.durationSeconds || video?.duration) || "--:--";
+  }
+
+  function normalizeVideoAccess(value) {
+    return value === "member" ? "member" : "free";
+  }
+
+  function getVideoAccessLabel(video) {
+    return normalizeVideoAccess(video?.access) === "member" ? "会员专属" : "免费公开";
+  }
+
+  function getVideoAccessClass(video) {
+    return normalizeVideoAccess(video?.access) === "member" ? "member" : "free";
+  }
+
+  async function fetchYoutubeMeta(id) {
+    try {
+      const response = await fetch(getYoutubeMetaEndpoint(id), {
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.detail || payload?.error || `meta HTTP ${response.status}`);
+      return payload || {};
+    } catch (error) {
+      console.warn("failed to read youtube metadata", error);
+      return {};
+    }
+  }
+
+  async function hydrateMissingDurations() {
+    const missingVideos = videos
+      .filter((video) => video?.id && !normalizeDurationSeconds(video.durationSeconds || video.duration) && !durationLookupQueue.has(video.id))
+      .slice(0, 12);
+
+    if (!missingVideos.length) return;
+
+    await Promise.allSettled(missingVideos.map(async (video) => {
+      durationLookupQueue.add(video.id);
+      const meta = await fetchYoutubeMeta(video.id);
+      const durationSeconds = normalizeDurationSeconds(meta.durationSeconds || meta.duration);
+      if (!durationSeconds) return;
+
+      videos = videos.map((item) => item.id === video.id ? {
+        ...item,
+        durationSeconds,
+        duration: formatDurationLabel(durationSeconds)
+      } : item);
+      saveCachedStore();
+      render();
+    }));
+  }
+
   function getIssueLabel(index) {
     return `第${Math.max(1, videos.length - index)}期`;
   }
 
   function getCurrentCategory() {
     return new URLSearchParams(window.location.search).get("category") || "";
+  }
+
+  function getCurrentAccess() {
+    return normalizeVideoAccess(new URLSearchParams(window.location.search).get("access") || "");
   }
 
   function getVideoCategory(video) {
@@ -312,8 +404,12 @@
 
   function getVisibleVideos() {
     const category = getCurrentCategory();
-    if (!isCategoryPage || !category) return videos;
-    return videos.filter((video) => getVideoCategory(video) === category);
+    const access = getCurrentAccess();
+    return videos.filter((video) => {
+      const matchesCategory = !isCategoryPage || !category || getVideoCategory(video) === category;
+      const matchesAccess = !new URLSearchParams(window.location.search).get("access") || normalizeVideoAccess(video.access) === access;
+      return matchesCategory && matchesAccess;
+    });
   }
 
   function setStatus(message, failed = false) {
@@ -354,13 +450,20 @@
       return;
     }
 
-    const title = els.titleInput?.value.trim() || `YouTube 视频 ${id}`;
+    setStatus("正在读取 YouTube 视频信息...");
+    const meta = await fetchYoutubeMeta(id);
+    const title = els.titleInput?.value.trim() || meta.title || `YouTube 视频 ${id}`;
     const category = els.newCategoryInput?.value.trim() || els.categorySelect?.value || DEFAULT_CATEGORY;
+    const access = normalizeVideoAccess(els.accessSelect?.value || "free");
+    const durationSeconds = normalizeDurationSeconds(meta.durationSeconds || meta.duration);
     const video = {
       id,
       title,
       category,
+      access,
       url: getVideoUrl(id),
+      duration: formatDurationLabel(durationSeconds),
+      durationSeconds,
       createdAt: Date.now()
     };
 
@@ -513,12 +616,12 @@
           <button class="video-list-main" type="button" data-video-action="open" data-video-id="${video.id}">
             <span class="video-card-art" style="--thumb: url('${getThumbUrl(video.id)}')">
               <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
-              <em>${isAdmin ? "视频" : index === 0 ? "会员专属" : "登录可看"}</em>
-              <b>20:00</b>
+              <em class="${getVideoAccessClass(video)}">${getVideoAccessLabel(video)}</em>
+              <b>${escapeHtml(getVideoDurationLabel(video))}</b>
             </span>
             <span>
               <strong>${escapeHtml(video.title)}</strong>
-              <small>${getVideoCategory(video)} · 26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
+              <small>${getVideoCategory(video)} · ${getVideoAccessLabel(video)} · 26年${formatDate(video.createdAt)} · ${getIssueLabel(index)}</small>
             </span>
           </button>
           ${isAdmin ? `
@@ -550,7 +653,7 @@
     if (els.previewCard) els.previewCard.hidden = false;
     if (els.previewThumb) els.previewThumb.src = getThumbUrl(selected.id);
     if (els.previewTitle) els.previewTitle.textContent = selected.title;
-    if (els.previewMeta) els.previewMeta.textContent = `${formatDate(selected.createdAt)} · YouTube`;
+    if (els.previewMeta) els.previewMeta.textContent = `${formatDate(selected.createdAt)} · ${getVideoCategory(selected)} · ${getVideoAccessLabel(selected)} · ${getVideoDurationLabel(selected)} · YouTube`;
   }
 
   function render() {
@@ -558,6 +661,7 @@
     renderPreview();
     renderRecent();
     renderTypes();
+    renderAccessTypes();
     renderCategorySelect();
     renderCategoryManager();
   }
@@ -585,6 +689,24 @@
           <span>${escapeHtml(category)}</span><strong>${counts[category] || 0}</strong>
         </button>
       `).join("")}
+    `;
+  }
+
+  function renderAccessTypes() {
+    if (!els.accessList) return;
+    const currentAccessParam = new URLSearchParams(window.location.search).get("access") || "";
+    const freeCount = videos.filter((video) => normalizeVideoAccess(video.access) === "free").length;
+    const memberCount = videos.filter((video) => normalizeVideoAccess(video.access) === "member").length;
+    els.accessList.innerHTML = `
+      <button class="${currentAccessParam ? "" : "active"}" type="button" data-access-link="./video.html">
+        <span>全部权限</span><strong>${videos.length}</strong>
+      </button>
+      <button class="${currentAccessParam === "free" ? "active" : ""}" type="button" data-access-link="./video.html?access=free">
+        <span>免费公开</span><strong>${freeCount}</strong>
+      </button>
+      <button class="${currentAccessParam === "member" ? "active" : ""}" type="button" data-access-link="./video.html?access=member">
+        <span>会员专属</span><strong>${memberCount}</strong>
+      </button>
     `;
   }
 
@@ -616,7 +738,7 @@
           <img src="${getThumbUrl(video.id)}" alt="" loading="lazy" />
           <span>
             <strong>${escapeHtml(video.title)}</strong>
-            <small>${getVideoCategory(video)} · ${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
+            <small>${getVideoCategory(video)} · ${getVideoAccessLabel(video)} · ${getVideoDurationLabel(video)} · ${formatDate(video.createdAt)}${index === 0 ? " · 最新" : ""}</small>
           </span>
           ${index === 0 ? "<em>NEW</em>" : ""}
         </button>
@@ -667,6 +789,12 @@
     const button = event.target.closest("button");
     if (!button) return;
     const link = button.dataset.categoryLink;
+    if (link) window.location.href = link;
+  });
+  els.accessList?.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    const link = button.dataset.accessLink;
     if (link) window.location.href = link;
   });
 

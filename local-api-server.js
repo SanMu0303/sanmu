@@ -8,7 +8,7 @@ const { loadBlockBeatsPayload } = require("./blockbeats-core");
 const { loadBinanceProxyPayload } = require("./binance-proxy-core");
 const { loadBinanceAccountPayload } = require("./binance-account-core");
 const { loadSectorFeedPayload } = require("./sector-feed-core");
-const { addCategory, addVideo, deleteCategory, deleteVideo, listVideos } = require("./videos-core");
+const { addCategory, addVideo, deleteCategory, deleteVideo, listVideos, loadYoutubeVideoMeta } = require("./videos-core");
 
 const PORT = 8787;
 
@@ -85,6 +85,25 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("Cache-Control", "no-store");
       res.end(JSON.stringify({
         error: "video category api failed",
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/youtube-video-meta") {
+    try {
+      const payload = await loadYoutubeVideoMeta(url.searchParams.get("id") || "");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = error.statusCode || 502;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({
+        error: "youtube meta api failed",
         detail: error instanceof Error ? error.message : String(error)
       }));
     }

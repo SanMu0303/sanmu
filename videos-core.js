@@ -44,14 +44,115 @@ function loadLocalEnv() {
 function normalizeVideo(video) {
   const id = String(video?.id || "").trim();
   if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) return null;
+  const durationSeconds = normalizeDurationSeconds(video?.durationSeconds || video?.duration);
+  const access = video?.access === "member" ? "member" : "free";
 
   return {
     id,
     title: String(video?.title || `YouTube 视频 ${id}`).trim(),
     category: String(video?.category || DEFAULT_VIDEO_CATEGORY).trim() || DEFAULT_VIDEO_CATEGORY,
+    access,
     url: `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
-    createdAt: Number(video?.createdAt) || Date.now()
+    createdAt: Number(video?.createdAt) || Date.now(),
+    ...(durationSeconds ? {
+      durationSeconds,
+      duration: formatDuration(durationSeconds)
+    } : {})
   };
+}
+
+function normalizeDurationSeconds(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
+  }
+
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  if (/^\d+$/.test(text)) return Number(text);
+  if (!/^\d{1,2}(:\d{1,2}){1,2}$/.test(text)) return 0;
+
+  const parts = text.split(":").map(Number);
+  return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (!total) return "";
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainSeconds = total % 60;
+  if (hours) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(remainSeconds).padStart(2, "0")}`;
+}
+
+function decodeHtmlEntities(text) {
+  return String(text || "")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function extractYoutubeTitle(html) {
+  const metaTitle = html.match(/<meta\s+name="title"\s+content="([^"]+)"/i)?.[1];
+  if (metaTitle) return decodeHtmlEntities(metaTitle).replace(/\s*-\s*YouTube\s*$/i, "").trim();
+
+  const ogTitle = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)?.[1];
+  if (ogTitle) return decodeHtmlEntities(ogTitle).trim();
+
+  const pageTitle = html.match(/<title>(.*?)<\/title>/i)?.[1];
+  return pageTitle ? decodeHtmlEntities(pageTitle).replace(/\s*-\s*YouTube\s*$/i, "").trim() : "";
+}
+
+async function loadYoutubeVideoMeta(id) {
+  const safeId = String(id || "").trim();
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(safeId)) return {};
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(safeId)}&hl=zh-CN`, {
+    signal: controller.signal,
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+    }
+  }).finally(() => clearTimeout(timeout));
+  if (!response.ok) throw new Error(`YouTube HTTP ${response.status}`);
+
+  const html = await response.text();
+  const durationSeconds = normalizeDurationSeconds(
+    html.match(/"lengthSeconds"\s*:\s*"(\d+)"/)?.[1] ||
+    html.match(/"lengthSeconds"\s*:\s*(\d+)/)?.[1]
+  );
+
+  return {
+    title: extractYoutubeTitle(html),
+    durationSeconds,
+    duration: formatDuration(durationSeconds)
+  };
+}
+
+async function enrichVideoMetadata(video, source = {}) {
+  if (!video) return video;
+
+  try {
+    const meta = await loadYoutubeVideoMeta(video.id);
+    const fallbackTitle = `YouTube 视频 ${video.id}`;
+    const sourceTitle = String(source?.title || "").trim();
+    return {
+      ...video,
+      title: sourceTitle && sourceTitle !== fallbackTitle ? sourceTitle : meta.title || video.title,
+      ...(meta.durationSeconds ? {
+        durationSeconds: meta.durationSeconds,
+        duration: meta.duration
+      } : {})
+    };
+  } catch (error) {
+    return video;
+  }
 }
 
 function normalizeStore(payload) {
@@ -209,12 +310,13 @@ async function listVideos() {
 }
 
 async function addVideo(video) {
-  const normalized = normalizeVideo(video);
-  if (!normalized) {
+  const baseVideo = normalizeVideo(video);
+  if (!baseVideo) {
     const error = new Error("invalid YouTube video id");
     error.statusCode = 400;
     throw error;
   }
+  const normalized = await enrichVideoMetadata(baseVideo, video);
 
   const store = await readVideoStore();
   const existing = store.items.find((item) => item.id === normalized.id);
@@ -266,5 +368,6 @@ module.exports = {
   assertAdminToken,
   deleteCategory,
   deleteVideo,
+  loadYoutubeVideoMeta,
   listVideos
 };

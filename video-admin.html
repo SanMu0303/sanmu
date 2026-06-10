@@ -11,10 +11,11 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
-    <script src="./theme.js?v=20260606-video-categories-1" defer></script>
-    <script src="./config.js?v=20260606-video-categories-1" defer></script>
-    <link rel="stylesheet" href="./styles.css?v=20260606-video-categories-1" />
-    <script src="./video.js?v=20260606-video-categories-1" defer></script>
+    <script src="./theme.js?v=20260610-email-auth-1" defer></script>
+    <script src="./config.js?v=20260610-email-auth-1" defer></script>
+    <script src="./auth.js?v=20260610-email-auth-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260610-video-access-1" />
+    <script src="./video.js?v=20260610-video-access-1" defer></script>
   </head>
   <body class="theme-dark" data-video-admin="true">
     <div class="page-shell">
@@ -55,6 +56,13 @@
             <label class="video-field">
               <span>视频类型</span>
               <select id="videoCategorySelect"></select>
+            </label>
+            <label class="video-field">
+              <span>观看权限</span>
+              <select id="videoAccessSelect">
+                <option value="free">免费公开</option>
+                <option value="member">会员专属</option>
+              </select>
             </label>
             <label class="video-field">
               <span>新建板块</span>
