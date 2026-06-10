@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三木交易面板 - 视频播放</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./theme.js?v=20260610-video-duration-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260610-video-access-1" />
+    <script src="./video-player.js?v=20260610-video-duration-1" defer></script>
+  </head>
+  <body class="theme-dark video-player-body video-public-body">
+    <main class="video-player-shell">
+      <div class="video-player-topline">
+        <a class="video-back-link" href="./video.html">← 返回课程列表</a>
+        <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+      </div>
+      <section class="board-panel video-player-panel">
+        <div class="video-player-header">
+          <div>
+            <h1 id="playerTitle">视频播放</h1>
+            <p>三木</p>
+          </div>
+        </div>
+        <div class="video-embed-frame" id="videoEmbedFrame"></div>
+        <div class="video-player-error" id="videoPlayerError" hidden>视频链接无效。</div>
+      </section>
+      <div class="video-player-progress">
+        <div></div>
+        <span>已观看 0% · 需达到 60%</span>
+      </div>
+      <section class="board-panel video-player-info">
+        <h2 id="playerInfoTitle">视频课程</h2>
+        <p id="playerInfoMeta">YouTube 课程</p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三木交易面板 - 视频</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./theme.js?v=20260610-email-auth-1" defer></script>
+    <script src="./config.js?v=20260610-email-auth-1" defer></script>
+    <script src="./auth.js?v=20260610-email-auth-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260610-video-access-1" />
+    <script src="./video.js?v=20260610-no-default-categories-1" defer></script>
+  </head>
+  <body class="theme-dark video-public-body">
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="eyebrow">SANMU TRADING</p>
+            <h1>三木交易面板</h1>
+          </div>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="top-nav-link" href="./index.html">市场</a>
+          <a class="top-nav-link active" href="./video.html" aria-current="page">视频</a>
+          <a class="top-nav-link" href="./live.html">实盘</a>
+          <a class="top-nav-link" href="./community.html">社群</a>
+          <a class="top-nav-link" href="./kline.html">K线</a>
+        </nav>
+        <div class="toolbar-meta topbar-actions">
+          <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+        </div>
+      </header>
+
+      <main class="video-page video-course-layout">
+        <section class="board-panel video-main-panel">
+          <div class="video-main-header">
+            <div>
+              <p class="eyebrow">VIDEO DISTRIBUTION</p>
+              <h2>视频分布</h2>
+              <span>所有长期留存的视频会在这里按最新顺序展示。</span>
+            </div>
+            <strong class="video-count" id="videoCount">0 个视频</strong>
+          </div>
+          <div class="video-list" id="videoList"></div>
+        </section>
+
+        <aside class="video-side-rail">
+          <section class="board-panel video-type-panel">
+            <h2>视频类型分类</h2>
+            <div class="video-type-list" id="videoTypeList">
+              <button class="active" type="button">全部视频</button>
+            </div>
+          </section>
+
+          <section class="board-panel video-access-panel">
+            <h2>观看权限分类</h2>
+            <div class="video-type-list" id="videoAccessList">
+              <button class="active" type="button">全部权限</button>
+              <button type="button">免费公开</button>
+              <button type="button">会员专属</button>
+            </div>
+          </section>
+
+          <section class="board-panel video-updates-panel">
+            <h2>最近更新</h2>
+            <div id="videoRecentList" class="video-recent-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+  </body>
+</html>

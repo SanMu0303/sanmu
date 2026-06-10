@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>三木交易面板 - 视频管理</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./theme.js?v=20260610-email-auth-1" defer></script>
+    <script src="./config.js?v=20260610-email-auth-1" defer></script>
+    <script src="./auth.js?v=20260610-email-auth-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260610-video-access-1" />
+    <script src="./video.js?v=20260610-no-default-categories-1" defer></script>
+  </head>
+  <body class="theme-dark" data-video-admin="true">
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="eyebrow">SANMU TRADING</p>
+            <h1>视频管理</h1>
+          </div>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="top-nav-link" href="./video.html">公开视频页</a>
+        </nav>
+        <div class="toolbar-meta topbar-actions">
+          <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+        </div>
+      </header>
+
+      <main class="video-page">
+        <section class="board-panel video-library-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">PRIVATE ADMIN</p>
+              <h2>YouTube 视频接入</h2>
+            </div>
+            <span class="video-count" id="videoCount">0 个视频</span>
+          </div>
+          <div class="video-add-panel video-add-panel-public">
+            <label class="video-field">
+              <span>YouTube 链接</span>
+              <input id="youtubeUrlInput" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" />
+            </label>
+            <label class="video-field">
+              <span>标题</span>
+              <input id="videoTitleInput" type="text" placeholder="自动读取或自定义标题" autocomplete="off" />
+            </label>
+            <label class="video-field">
+              <span>视频类型</span>
+              <select id="videoCategorySelect"></select>
+            </label>
+            <label class="video-field">
+              <span>观看权限</span>
+              <select id="videoAccessSelect">
+                <option value="free">免费公开</option>
+                <option value="member">会员专属</option>
+              </select>
+            </label>
+            <label class="video-field">
+              <span>新建板块</span>
+              <input id="videoNewCategoryInput" type="text" placeholder="例如：宏观复盘" autocomplete="off" />
+            </label>
+            <button class="video-add-button" id="addVideoButton" type="button">添加视频</button>
+          </div>
+          <details class="video-github-panel" open>
+            <summary>GitHub 长期保存配置</summary>
+            <div class="video-github-grid">
+              <label class="video-field">
+                <span>GitHub Token</span>
+                <input id="videoGithubTokenInput" type="password" placeholder="只保存在你的浏览器" autocomplete="off" />
+              </label>
+              <label class="video-field">
+                <span>仓库</span>
+                <input id="videoGithubRepoInput" type="text" placeholder="用户名/仓库名" autocomplete="off" />
+              </label>
+              <label class="video-field">
+                <span>分支</span>
+                <input id="videoGithubBranchInput" type="text" placeholder="main" autocomplete="off" />
+              </label>
+              <label class="video-field">
+                <span>文件路径</span>
+                <input id="videoGithubPathInput" type="text" placeholder="videos.json" autocomplete="off" />
+              </label>
+            </div>
+          </details>
+          <div class="video-form-status" id="videoFormStatus" aria-live="polite"></div>
+          <section class="video-category-manager" aria-label="视频类型管理">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">CATEGORY MANAGER</p>
+                <h2>视频类型管理</h2>
+              </div>
+            </div>
+            <div class="video-category-create-row">
+              <label class="video-field">
+                <span>新增视频类型</span>
+                <input id="videoManagedCategoryInput" type="text" placeholder="例如：宏观复盘" autocomplete="off" />
+              </label>
+              <button class="video-add-button" id="addVideoCategoryButton" type="button">新增类型</button>
+            </div>
+            <div class="video-category-manage-list" id="videoCategoryManageList"></div>
+          </section>
+          <div class="video-list" id="videoList"></div>
+        </section>
+
+        <aside class="board-panel video-preview-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">SELECTED</p>
+              <h2>当前选择</h2>
+            </div>
+          </div>
+          <div class="video-preview-empty" id="videoPreviewEmpty">添加或点击视频后，可打开独立播放窗口预览。</div>
+          <div class="video-preview-card" id="videoPreviewCard" hidden>
+            <img id="videoPreviewThumb" alt="" />
+            <div>
+              <h3 id="videoPreviewTitle"></h3>
+              <p id="videoPreviewMeta"></p>
+            </div>
+            <button class="video-open-button" id="openSelectedVideoButton" type="button">打开播放</button>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </body>
+</html>

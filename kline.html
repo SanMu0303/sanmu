@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三木交易面板 - K线</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./theme.js?v=20260610-email-auth-1" defer></script>
+    <script src="./auth.js?v=20260610-email-auth-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260610-email-auth-1" />
+  </head>
+  <body class="theme-dark">
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="eyebrow">SANMU TRADING</p>
+            <h1>三木交易面板</h1>
+          </div>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="top-nav-link" href="./index.html">市场</a>
+          <a class="top-nav-link" href="./video.html">视频</a>
+          <a class="top-nav-link" href="./live.html">实盘</a>
+          <a class="top-nav-link" href="./community.html">社群</a>
+          <a class="top-nav-link active" href="./kline.html" aria-current="page">K线</a>
+        </nav>
+        <div class="toolbar-meta topbar-actions">
+          <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+        </div>
+      </header>
+
+      <main class="kline-page">
+        <section class="board-panel kline-panel">
+          <div class="kline-panel-header">
+            <div>
+              <p class="eyebrow">TRADINGVIEW</p>
+              <h2>K线窗口</h2>
+            </div>
+          </div>
+          <div class="kline-widget-shell">
+            <div id="tradingviewKlineWidget" class="kline-widget"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const widgetContainerId = "tradingviewKlineWidget";
+      let activeSymbol = "BINANCE:BTCUSDT";
+
+      function getCurrentTheme() {
+        return window.SanmuTheme?.get?.() || (document.documentElement.classList.contains("theme-dark") ? "dark" : "light");
+      }
+
+      function buildTradingViewUrl(symbol) {
+        const params = new URLSearchParams({
+          symbol,
+          interval: "15"
+        });
+        return `https://www.tradingview.com/chart/?${params.toString()}`;
+      }
+
+      function renderTradingViewWidget(symbol = activeSymbol) {
+        activeSymbol = symbol;
+        const container = document.getElementById(widgetContainerId);
+        if (!container) return;
+        container.innerHTML = `
+          <div class="tradingview-widget-container">
+            <div class="tradingview-widget-container__widget"></div>
+            <a class="kline-open-fallback" href="${buildTradingViewUrl(activeSymbol)}" target="_blank" rel="noopener noreferrer">打开 TradingView 完整图表</a>
+          </div>
+        `;
+
+        const script = document.createElement("script");
+        script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+        script.async = true;
+        script.textContent = JSON.stringify({
+          autosize: true,
+          symbol: activeSymbol,
+          interval: "15",
+          timezone: "Asia/Shanghai",
+          theme: getCurrentTheme(),
+          style: "1",
+          locale: "zh_CN",
+          allow_symbol_change: true,
+          calendar: false,
+          details: true,
+          hide_side_toolbar: false,
+          hide_top_toolbar: false,
+          hotlist: false,
+          save_image: true,
+          studies: ["Volume@tv-basicstudies"],
+          support_host: "https://www.tradingview.com",
+          withdateranges: true
+        });
+        container.querySelector(".tradingview-widget-container")?.appendChild(script);
+      }
+
+      window.addEventListener("load", () => renderTradingViewWidget());
+      window.SanmuTheme?.onChange?.(() => renderTradingViewWidget(activeSymbol));
+    </script>
+  </body>
+</html>

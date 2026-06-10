@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="theme-dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三木交易面板 - 登录注册</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./theme.js?v=20260610-email-auth-1" defer></script>
+    <script src="./auth.js?v=20260610-email-auth-1" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260610-email-auth-1" />
+  </head>
+  <body class="theme-dark auth-page-body">
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="eyebrow">SANMU TRADING</p>
+            <h1>三木交易面板</h1>
+          </div>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="top-nav-link" href="./index.html">市场</a>
+          <a class="top-nav-link" href="./video.html">视频</a>
+          <a class="top-nav-link" href="./live.html">实盘</a>
+          <a class="top-nav-link" href="./community.html">社群</a>
+          <a class="top-nav-link" href="./kline.html">K线</a>
+        </nav>
+        <div class="toolbar-meta topbar-actions">
+          <button class="theme-toggle-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+        </div>
+      </header>
+
+      <main class="auth-page">
+        <section class="board-panel auth-hero-panel">
+          <div>
+            <p class="eyebrow">ACCOUNT ACCESS</p>
+            <h2>邮箱登录</h2>
+            <p>用邮箱创建账号后，可以在当前浏览器保持登录状态。后续接入正式会员系统时，这里可以直接替换为云端认证。</p>
+          </div>
+        </section>
+
+        <section class="board-panel auth-card">
+          <div class="auth-tabs" role="tablist" aria-label="登录注册切换">
+            <button class="auth-tab active" type="button" data-auth-tab="login">登录</button>
+            <button class="auth-tab" type="button" data-auth-tab="register">注册</button>
+          </div>
+
+          <form class="auth-form active" id="loginForm" autocomplete="on">
+            <label class="auth-field">
+              <span>邮箱</span>
+              <input id="loginEmailInput" type="email" placeholder="name@example.com" autocomplete="email" required />
+            </label>
+            <label class="auth-field">
+              <span>密码</span>
+              <input id="loginPasswordInput" type="password" placeholder="输入密码" autocomplete="current-password" required />
+            </label>
+            <button class="auth-submit-button" type="submit">登录</button>
+          </form>
+
+          <form class="auth-form" id="registerForm" autocomplete="on">
+            <label class="auth-field">
+              <span>邮箱</span>
+              <input id="registerEmailInput" type="email" placeholder="name@example.com" autocomplete="email" required />
+            </label>
+            <label class="auth-field">
+              <span>密码</span>
+              <input id="registerPasswordInput" type="password" placeholder="至少 8 位字符" autocomplete="new-password" required />
+            </label>
+            <label class="auth-field">
+              <span>确认密码</span>
+              <input id="registerConfirmInput" type="password" placeholder="再次输入密码" autocomplete="new-password" required />
+            </label>
+            <button class="auth-submit-button" type="submit">创建账号</button>
+          </form>
+
+          <div class="auth-status" id="authStatus" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

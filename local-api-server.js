@@ -1,0 +1,283 @@
+"use strict";
+
+const http = require("http");
+const { loadListingFeedPayload, loadMacroCalendarPayload } = require("./listing-feed-core");
+const { loadBweRssPayload } = require("./bwe-rss-core");
+const { loadBinanceNewsPayload } = require("./binance-news-core");
+const { loadBlockBeatsPayload } = require("./blockbeats-core");
+const { loadBinanceProxyPayload } = require("./binance-proxy-core");
+const { loadBinanceAccountPayload } = require("./binance-account-core");
+const { loadSectorFeedPayload } = require("./sector-feed-core");
+const { addCategory, addVideo, deleteCategory, deleteVideo, listVideos, loadYoutubeVideoMeta } = require("./videos-core");
+
+const PORT = 8787;
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Admin-Token");
+
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+
+  async function readJsonBody() {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (!chunks.length) return {};
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  }
+
+  if (url.pathname === "/api/videos") {
+    try {
+      let payload;
+      if (req.method === "GET") {
+        payload = await listVideos();
+      } else if (req.method === "POST") {
+        payload = await addVideo(await readJsonBody());
+      } else if (req.method === "DELETE") {
+        payload = await deleteVideo(url.searchParams.get("id") || "");
+      } else {
+        res.statusCode = 405;
+        payload = { error: "method not allowed" };
+      }
+
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = error.statusCode || 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({
+        error: "video api failed",
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/video-categories") {
+    try {
+      let payload;
+      if (req.method === "GET") {
+        payload = await listVideos();
+      } else if (req.method === "POST") {
+        const body = await readJsonBody();
+        payload = await addCategory(body.category || body.name || "");
+      } else if (req.method === "DELETE") {
+        payload = await deleteCategory(url.searchParams.get("category") || "");
+      } else {
+        res.statusCode = 405;
+        payload = { error: "method not allowed" };
+      }
+
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = error.statusCode || 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({
+        error: "video category api failed",
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/youtube-video-meta") {
+    try {
+      const payload = await loadYoutubeVideoMeta(url.searchParams.get("id") || "");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = error.statusCode || 502;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({
+        error: "youtube meta api failed",
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/binance-proxy") {
+    try {
+      const payload = await loadBinanceProxyPayload(url.searchParams.get("path") || "");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 502;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load binance data",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/binance-account") {
+    try {
+      const payload = await loadBinanceAccountPayload({
+        previewFallback: url.searchParams.get("preview") === "1"
+      });
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 502;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(
+        JSON.stringify({
+          error: "failed to load binance account data",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/new-listings-feed") {
+    try {
+      const payload = await loadListingFeedPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load listing feeds",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/bwe-rss-feed") {
+    try {
+      const payload = await loadBweRssPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load bwe rss feed",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/binance-news-feed") {
+    try {
+      const payload = await loadBinanceNewsPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load binance news feed",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/blockbeats-feed") {
+    try {
+      const payload = await loadBlockBeatsPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load blockbeats feed",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/macro-calendar-feed") {
+    try {
+      const payload = await loadMacroCalendarPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load macro calendar feed",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/sector-feed") {
+    try {
+      const payload = await loadSectorFeedPayload();
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          error: "failed to load social trend feed",
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/health") {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: true, port: PORT }));
+    return;
+  }
+
+  res.statusCode = 404;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify({ error: "not found" }));
+});
+
+server.listen(PORT, "127.0.0.1", () => {
+  console.log(`Local API server listening on http://127.0.0.1:${PORT}`);
+});

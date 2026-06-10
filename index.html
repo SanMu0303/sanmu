@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>热度与异动榜单</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css?v=20260610-email-auth-1" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="eyebrow">SANMU TRADING</p>
+            <h1>三木交易面板</h1>
+          </div>
+        </div>
+        <nav class="top-nav" aria-label="主导航">
+          <a class="top-nav-link active" href="./index.html" aria-current="page">市场</a>
+          <a class="top-nav-link" href="./video.html">视频</a>
+          <a class="top-nav-link" href="./live.html">实盘</a>
+          <a class="top-nav-link" href="./community.html">社群</a>
+          <a class="top-nav-link" href="./kline.html">K线</a>
+        </nav>
+        <div class="toolbar-meta">
+          <button class="theme-toggle-button" id="themeToggleButton" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">☾</button>
+          <button class="ghost-button" id="refreshButton">刷新数据</button>
+          <span id="refreshState">自动刷新：5秒</span>
+          <span id="fetchStatus">等待加载</span>
+          <span id="updateTime"></span>
+        </div>
+      </header>
+
+      <section class="volume-strip-panel">
+        <div class="volume-strip" id="volumeTopStrip"></div>
+      </section>
+
+      <main class="dashboard-grid">
+        <section class="board-panel market-overview-panel">
+          <div class="market-overview-grid">
+            <section class="market-subpanel" id="heatPanel">
+              <div class="panel-header">
+                <h2 id="heatTitle">币安合约综合热度榜前10</h2>
+                <div class="movers-toggle heat-mode-toggle" aria-label="切换热度模式">
+                  <button class="movers-toggle-button active" type="button" data-heat-mode="default">默认</button>
+                  <button class="movers-toggle-button" type="button" data-heat-mode="combined">综合</button>
+                  <button class="movers-toggle-button" type="button" data-heat-mode="contracts">合约</button>
+                  <button class="movers-toggle-button" type="button" data-heat-mode="onchain">链上</button>
+                </div>
+              </div>
+              <div class="panel-body" id="heatTable"></div>
+            </section>
+
+            <section class="market-subpanel" id="chainPanel">
+              <div class="panel-header">
+                <h2>TradingView K线窗口</h2>
+              </div>
+              <div class="panel-body tradingview-panel" id="tradingviewPanel"></div>
+            </section>
+
+            <aside class="market-subpanel side-panel">
+            <div class="sub-panel">
+              <div class="panel-header">
+                <h2>价格异动</h2>
+              </div>
+              <div class="panel-body">
+                <div id="shockList"></div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="sub-panel">
+              <div class="panel-header">
+                <h2>异常放量</h2>
+              </div>
+              <div class="panel-body">
+                <div id="volumeAlertList"></div>
+              </div>
+            </div>
+            </aside>
+          </div>
+        </section>
+
+          <section class="board-panel macro-calendar-panel" id="macroCalendarPanel">
+            <div class="panel-header">
+              <h2>宏观日历</h2>
+              <div class="panel-header-status" id="macroCalendarStatusBar"></div>
+            </div>
+            <div class="panel-body macro-calendar-feed" id="macroCalendarFeed"></div>
+          </section>
+
+        <section class="stack-panel compact-stack-panel market-list-panel">
+          <div class="sub-panel">
+            <div class="panel-header">
+              <h2>币安行情列表</h2>
+              <div class="panel-header-status" id="marketListStatus">按24小时成交量排序</div>
+            </div>
+            <div class="panel-body" id="marketListTable"></div>
+          </div>
+        </section>
+      </main>
+
+      <section class="bottom-strip">
+        <section class="bottom-panel news-hub-panel">
+          <div class="panel-header">
+            <h2>新闻聚合</h2>
+            <div class="news-hub-actions">
+              <div class="movers-toggle news-source-toggle" aria-label="切换新闻来源">
+                <button class="movers-toggle-button active" type="button" data-news-mode="all">全部</button>
+                <button class="movers-toggle-button" type="button" data-news-mode="bwe">方程式</button>
+                <button class="movers-toggle-button" type="button" data-news-mode="jin10">金十</button>
+                <button class="movers-toggle-button" type="button" data-news-mode="blockbeats">律动</button>
+              </div>
+              <div class="panel-header-status" id="newsHubStatusBar"></div>
+            </div>
+          </div>
+          <div class="panel-body compact-feed news-hub-feed" id="newsHubFeed"></div>
+        </section>
+      </section>
+    </div>
+
+    <script src="./theme.js?v=20260610-email-auth-1"></script>
+    <script src="./config.js?v=20260610-email-auth-1"></script>
+    <script src="./auth.js?v=20260610-email-auth-1"></script>
+    <script src="./script.js?v=20260610-email-auth-1"></script>
+  </body>
+</html>

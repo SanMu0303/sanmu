@@ -1,0 +1,46 @@
+{
+  "regions": ["hkg1"],
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "functions": {
+    "api/binance-proxy.js": {
+      "regions": ["hkg1"]
+    },
+    "api/binance-account.js": {
+      "regions": ["hkg1"]
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/(.*).js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
+        }
+      ]
+    },
+    {
+      "source": "/(.*).css",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
+        }
+      ]
+    }
+  ]
+}
