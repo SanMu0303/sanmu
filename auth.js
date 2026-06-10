@@ -100,6 +100,15 @@
     setStatus("");
   }
 
+  function handleDiscordLogin() {
+    const authUrl = window.DASHBOARD_CONFIG?.discordAuthUrl || "";
+    if (authUrl) {
+      window.location.href = authUrl;
+      return;
+    }
+    setStatus("Discord 登录入口已创建，后续配置 OAuth 地址后即可跳转。", "error");
+  }
+
   async function handleRegister(event) {
     event.preventDefault();
     const email = normalizeEmail(qs("#registerEmailInput")?.value);
@@ -198,6 +207,7 @@
     qsa("[data-auth-tab]").forEach((button) => {
       button.addEventListener("click", () => setActiveTab(button.dataset.authTab));
     });
+    qs("#discordLoginButton")?.addEventListener("click", handleDiscordLogin);
     qs("#registerForm")?.addEventListener("submit", handleRegister);
     qs("#loginForm")?.addEventListener("submit", handleLogin);
 
