@@ -1,7 +1,22 @@
 {
   "categories": [
     "视频课程",
+    "技术指标",
+    "形态分析",
+    "交易策略",
+    "技术模型",
     "行情分析"
   ],
-  "items": []
+  "items": [
+    {
+      "id": "M_4uEYECAa0",
+      "title": "6/10",
+      "category": "行情分析",
+      "access": "member",
+      "url": "https://www.youtube.com/watch?v=M_4uEYECAa0",
+      "duration": "",
+      "durationSeconds": 0,
+      "createdAt": 1781077872992
+    }
+  ]
 }
