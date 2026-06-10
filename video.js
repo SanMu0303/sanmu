@@ -574,6 +574,17 @@
       return;
     }
 
+    const count = getCategoryCounts()[name] || 0;
+    const confirmed = window.confirm(
+      count
+        ? `确定删除「${name}」视频类型吗？\n\n该类型下有 ${count} 个视频，删除后会自动归入「${DEFAULT_CATEGORY}」。`
+        : `确定删除「${name}」视频类型吗？`
+    );
+    if (!confirmed) {
+      setStatus("已取消删除视频类型。");
+      return;
+    }
+
     try {
       setStatus("正在删除视频类型...");
       let payload;
@@ -593,7 +604,7 @@
       categories = store.categories;
       videos = store.items;
       saveCachedStore();
-      setStatus("已删除视频类型，相关视频已归入默认类型。");
+      setStatus(count ? `已删除「${name}」，${count} 个视频已归入「${DEFAULT_CATEGORY}」。` : `已删除「${name}」。`);
       render();
     } catch (error) {
       setStatus(`删除失败：${error.message}`, true);
