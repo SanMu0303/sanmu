@@ -139,6 +139,23 @@ git push
 - 你打开 `video-admin.html`，直接添加 YouTube 链接
 - 添加后会写入 `videos.json`，所有用户刷新 `video.html` 都能看到
 
+## Discord 登录配置
+
+Discord 登录需要在 Discord Developer Portal 和 Vercel 里同时配置。
+
+Discord Developer Portal 的 OAuth2 Redirects 里添加：
+
+- 本地测试：`http://127.0.0.1:8787/api/discord-callback`
+- 线上访问：`https://sanmu-o962.vercel.app/api/discord-callback`
+
+Vercel 项目的 Environment Variables 里添加：
+
+- `DISCORD_CLIENT_ID`：Discord 应用的 Client ID
+- `DISCORD_CLIENT_SECRET`：Discord 应用的 Client Secret
+- `DISCORD_REDIRECT_URI`：`https://sanmu-o962.vercel.app/api/discord-callback`
+
+注意：`DISCORD_CLIENT_SECRET` 不能写进网页文件，也不要提交到 GitHub。
+
 ## 如果你完全照着做
 
 你现在最该做的是：

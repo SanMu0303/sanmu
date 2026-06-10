@@ -9,6 +9,7 @@ const { loadBinanceProxyPayload } = require("./binance-proxy-core");
 const { loadBinanceAccountPayload } = require("./binance-account-core");
 const { loadSectorFeedPayload } = require("./sector-feed-core");
 const { addCategory, addVideo, deleteCategory, deleteVideo, listVideos, loadYoutubeVideoMeta } = require("./videos-core");
+const { handleDiscordCallback } = require("./discord-auth-core");
 
 const PORT = 8787;
 
@@ -104,6 +105,23 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("Cache-Control", "no-store");
       res.end(JSON.stringify({
         error: "youtube meta api failed",
+        detail: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/discord-callback") {
+    try {
+      const redirectTo = await handleDiscordCallback(url);
+      res.statusCode = 302;
+      res.setHeader("Location", redirectTo);
+      res.end();
+    } catch (error) {
+      res.statusCode = error.statusCode || 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({
+        error: "discord callback failed",
         detail: error instanceof Error ? error.message : String(error)
       }));
     }

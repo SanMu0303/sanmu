@@ -100,13 +100,65 @@
     setStatus("");
   }
 
+  function base64UrlEncode(value) {
+    return btoa(unescape(encodeURIComponent(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  }
+
+  function buildDiscordAuthUrl() {
+    const config = window.DASHBOARD_CONFIG || {};
+    const clientId = config.discordClientId || "";
+    const isLocalPage = window.location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(window.location.hostname);
+    const redirectUri = (
+      (isLocalPage && config.discordLocalRedirectUri) ||
+      config.discordRedirectUri ||
+      `${config.apiOrigin || window.location.origin}/api/discord-callback`
+    );
+    if (!clientId || !redirectUri) return "";
+
+    const state = base64UrlEncode(JSON.stringify({
+      nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      returnTo: window.location.href.split("#")[0].split("?")[0]
+    }));
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "identify email",
+      state
+    });
+    return `https://discord.com/oauth2/authorize?${params.toString()}`;
+  }
+
   function handleDiscordLogin() {
-    const authUrl = window.DASHBOARD_CONFIG?.discordAuthUrl || "";
+    const authUrl = window.DASHBOARD_CONFIG?.discordAuthUrl || buildDiscordAuthUrl();
     if (authUrl) {
       window.location.href = authUrl;
       return;
     }
-    setStatus("Discord 登录入口已创建，后续配置 OAuth 地址后即可跳转。", "error");
+    setStatus("Discord OAuth 还没有配置 Client ID。", "error");
+  }
+
+  function consumeDiscordCallback() {
+    const url = new URL(window.location.href);
+    const discordAuth = url.searchParams.get("discord_auth");
+    const discordError = url.searchParams.get("discord_error");
+    if (!discordAuth && !discordError) return false;
+
+    if (discordAuth === "1") {
+      const email = normalizeEmail(url.searchParams.get("discord_email")) || `discord-${url.searchParams.get("discord_id")}@discord.local`;
+      setSession(email);
+      setStatus(`Discord 登录成功：${email}`, "success");
+      updateAuthWidget();
+    } else if (discordError) {
+      setStatus(`Discord 登录失败：${discordError}`, "error");
+    }
+
+    ["discord_auth", "discord_error", "discord_id", "discord_email", "discord_name"].forEach((key) => {
+      url.searchParams.delete(key);
+    });
+    window.history.replaceState({}, document.title, url.toString());
+    return true;
   }
 
   async function handleRegister(event) {
@@ -212,7 +264,7 @@
     qs("#loginForm")?.addEventListener("submit", handleLogin);
 
     const session = getSession();
-    if (session) setStatus(`当前已登录：${session.email}`, "success");
+    if (!consumeDiscordCallback() && session) setStatus(`当前已登录：${session.email}`, "success");
   }
 
   window.SanmuAuth = {
