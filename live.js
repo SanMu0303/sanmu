@@ -2,7 +2,7 @@
   "use strict";
 
   const LOCAL_API_ORIGIN = "http://127.0.0.1:8787";
-  const REFRESH_MS = 30000;
+  const REFRESH_MS = 8000;
   const REQUEST_TIMEOUT_MS = 30000;
   let inFlightLoad = null;
   let lastAccountPayload = null;
@@ -25,6 +25,7 @@
     activityList: document.querySelector(".live-activity-list"),
     closedTradesTable: document.querySelector(".live-closed-trades-table"),
     positionTable: document.querySelector(".live-position-table"),
+    positionLeverage: document.getElementById("livePositionLeverage"),
     tabs: Array.from(document.querySelectorAll(".live-chart-tab"))
   };
 
@@ -130,6 +131,44 @@
     return number >= 1000
       ? number.toLocaleString("en-US", { maximumFractionDigits: 2 })
       : number.toLocaleString("en-US", { maximumFractionDigits: 6 });
+  }
+
+  function parseDisplayNumber(value) {
+    const number = Number(String(value || "").replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function formatLeverage(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0) return "";
+    if (Math.abs(number - Math.round(number)) < 0.005) return `${Math.round(number)}X`;
+    return `${number.toFixed(number >= 10 ? 1 : 2)}X`;
+  }
+
+  function renderPositionLeverage(rows, equityValue) {
+    if (!els.positionLeverage) return;
+    const equity = Number(equityValue);
+    if (!rows?.length || !Number.isFinite(equity) || equity <= 0) {
+      els.positionLeverage.textContent = "";
+      els.positionLeverage.classList.remove("is-visible");
+      return;
+    }
+
+    const totals = rows.reduce(
+      (sum, row) => {
+        const value = Number.isFinite(Number(row.valueNumber)) ? Number(row.valueNumber) : parseDisplayNumber(row.value || row.notional);
+        if (row.side === "多") sum.long += value;
+        if (row.side === "空") sum.short += value;
+        return sum;
+      },
+      { long: 0, short: 0 }
+    );
+    const parts = [];
+    if (totals.long > 0) parts.push(`<span class="live-position-leverage-chip is-long">多 ${formatLeverage(totals.long / equity)}</span>`);
+    if (totals.short > 0) parts.push(`<span class="live-position-leverage-chip is-short">空 ${formatLeverage(totals.short / equity)}</span>`);
+
+    els.positionLeverage.innerHTML = parts.join("");
+    els.positionLeverage.classList.toggle("is-visible", parts.length > 0);
   }
 
   function normalizeChartSeries(payload) {
@@ -359,16 +398,17 @@
     `;
   }
 
-  function renderPositions(rows) {
+  function renderPositions(rows, equityValue) {
     if (!els.positionTable) return;
+    renderPositionLeverage(rows, equityValue);
 
     const head = `
       <div class="live-table-row live-table-head">
         <div>标的</div>
         <div>方向</div>
-        <div>杠杆</div>
+        <div>价格</div>
         <div>持仓</div>
-        <div>均价</div>
+        <div>价值</div>
         <div>浮盈亏</div>
       </div>
     `;
@@ -384,9 +424,9 @@
           <div class="live-table-row">
             <div>${row.symbol || "--"}</div>
             <div>${row.side || "--"}</div>
-            <div>${row.leverage || "--"}</div>
+            <div>${row.price || row.markPrice || "--"}</div>
             <div>${row.amount || "--"}</div>
-            <div>${row.entryPrice || "--"}</div>
+            <div>${row.value || row.notional || "--"}</div>
             <div class="${pnlClass(row.pnlValue)}">${row.pnl || "--"}</div>
           </div>
         `
@@ -396,13 +436,14 @@
 
   function renderPositionsMessage(message) {
     if (!els.positionTable) return;
+    renderPositionLeverage([], 0);
     els.positionTable.innerHTML = `
       <div class="live-table-row live-table-head">
         <div>标的</div>
         <div>方向</div>
-        <div>杠杆</div>
+        <div>价格</div>
         <div>持仓</div>
-        <div>均价</div>
+        <div>价值</div>
         <div>浮盈亏</div>
       </div>
       <div class="live-empty-row">${message}</div>
@@ -606,7 +647,7 @@
     });
     renderHistory(historyRows);
     renderActivity(payload?.tradeActivity || []);
-    renderPositions(payload?.positions || []);
+    renderPositions(payload?.positions || [], payload?.equity?.current);
     renderClosedTrades(payload?.closedTrades || []);
     renderChart(payload);
     setText(els.historyStatus, payload?.history?.length ? `已追溯 ${payload.history.length} 条` : "暂无历史记录");
@@ -669,4 +710,7 @@
   bindTabs();
   loadAccount();
   window.setInterval(loadAccount, REFRESH_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadAccount();
+  });
 })();

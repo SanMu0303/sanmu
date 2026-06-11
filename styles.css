@@ -1489,6 +1489,47 @@ html.theme-dark .exchange-card.bitget {
   grid-area: positions;
 }
 
+.live-position-panel .panel-header {
+  align-items: center;
+}
+
+.live-position-leverage {
+  display: none;
+  justify-self: end;
+  align-self: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.live-position-leverage.is-visible {
+  display: inline-flex;
+}
+
+.live-position-leverage-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.live-position-leverage-chip.is-long {
+  border-color: color-mix(in srgb, #16a34a 42%, var(--border));
+  background: color-mix(in srgb, #16a34a 12%, var(--panel));
+  color: #16a34a;
+}
+
+.live-position-leverage-chip.is-short {
+  border-color: color-mix(in srgb, #ef4444 42%, var(--border));
+  background: color-mix(in srgb, #ef4444 12%, var(--panel));
+  color: #ef4444;
+}
+
 .live-activity-panel {
   grid-area: activity;
 }

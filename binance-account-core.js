@@ -17,7 +17,7 @@ const TRADE_HISTORY_FILE = path.join(__dirname, "live-trade-history.json");
 const CLOSED_TRADES_FILE = path.join(__dirname, "live-closed-trades.json");
 const TRADE_ACTIVITY_FILE = path.join(__dirname, "live-trade-activity.json");
 const REQUEST_TIMEOUT_MS = 4500;
-const ACCOUNT_CACHE_MS = 12000;
+const ACCOUNT_CACHE_MS = 5000;
 const STALE_CACHE_MS = 5 * 60 * 1000;
 const EQUITY_HISTORY_LIMIT = 2000;
 const EQUITY_HISTORY_MIN_INTERVAL_MS = 60 * 1000;
@@ -317,6 +317,20 @@ async function loadFuturesAccount() {
     }
     throw error;
   }
+}
+
+async function loadPositionRiskRows() {
+  const endpoints = ["/fapi/v3/positionRisk", "/fapi/v2/positionRisk"];
+  for (const endpoint of endpoints) {
+    try {
+      const rows = await signedFapiRequest(endpoint);
+      return Array.isArray(rows) ? rows : [];
+    } catch (error) {
+      console.warn(`load position risk failed from ${endpoint}:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return [];
 }
 
 function toNumber(value, fallback = 0) {
@@ -635,20 +649,40 @@ function buildPreviewEquityHistory(now) {
   });
 }
 
+function mergePositionRisk(position, riskRowsBySymbol) {
+  const risk = riskRowsBySymbol.get(position.symbol) || {};
+  return {
+    ...position,
+    positionAmt: risk.positionAmt ?? position.positionAmt,
+    entryPrice: risk.entryPrice ?? position.entryPrice,
+    markPrice: risk.markPrice ?? position.markPrice,
+    unRealizedProfit: risk.unRealizedProfit ?? risk.unrealizedProfit ?? position.unRealizedProfit,
+    leverage: risk.leverage ?? position.leverage,
+    notional: risk.notional ?? position.notional
+  };
+}
+
 function normalizePosition(position) {
   const amount = toNumber(position.positionAmt);
-  const markPrice = toNumber(position.markPrice);
+  const rawNotional = toNumber(position.notional);
+  const derivedMarkPrice = amount ? Math.abs(rawNotional / amount) : 0;
+  const rawMarkPrice = toNumber(position.markPrice || position.lastPrice);
+  const markPrice = rawMarkPrice > 0 ? rawMarkPrice : derivedMarkPrice;
   const entryPrice = toNumber(position.entryPrice);
   const leverage = toNumber(position.leverage);
-  const unrealizedProfit = toNumber(position.unRealizedProfit);
+  const unrealizedProfit = toNumber(position.unRealizedProfit ?? position.unrealizedProfit ?? position.unrealizedPnl);
+  const notional = Number.isFinite(rawNotional) && rawNotional !== 0 ? Math.abs(rawNotional) : Math.abs(amount) * markPrice;
 
   return {
     symbol: position.symbol,
     side: amount > 0 ? "多" : "空",
     leverage: leverage ? `${leverage}x` : "--",
     amount: toFixedDynamic(Math.abs(amount), 6),
+    price: markPrice ? `$${toFixedDynamic(markPrice, 6)}` : "--",
     entryPrice: entryPrice ? `$${toFixedDynamic(entryPrice, 6)}` : "--",
     markPrice: markPrice ? `$${toFixedDynamic(markPrice, 6)}` : "--",
+    value: Number.isFinite(notional) && notional > 0 ? `${toFixedDynamic(notional, 2)} USDT` : "--",
+    valueNumber: Number.isFinite(notional) && notional > 0 ? notional : 0,
     pnl: `${formatSignedAmount(unrealizedProfit)} USDT`,
     pnlValue: unrealizedProfit
   };
@@ -1017,8 +1051,11 @@ function getPreviewAccountPayload(error) {
         side: "多",
         leverage: "5x",
         amount: "0.084",
+        price: "$68,931.20",
         entryPrice: "$68,420.50",
         markPrice: "$68,931.20",
+        value: "5,790.22 USDT",
+        valueNumber: 5790.22,
         pnl: "+42.91 USDT",
         pnlValue: 42.91
       },
@@ -1027,8 +1064,11 @@ function getPreviewAccountPayload(error) {
         side: "空",
         leverage: "3x",
         amount: "1.250",
+        price: "$3,742.10",
         entryPrice: "$3,756.80",
         markPrice: "$3,742.10",
+        value: "4,677.63 USDT",
+        valueNumber: 4677.63,
         pnl: "+18.37 USDT",
         pnlValue: 18.37
       },
@@ -1037,8 +1077,11 @@ function getPreviewAccountPayload(error) {
         side: "多",
         leverage: "2x",
         amount: "42.000",
+        price: "$166.83",
         entryPrice: "$167.42",
         markPrice: "$166.83",
+        value: "7,006.86 USDT",
+        valueNumber: 7006.86,
         pnl: "-24.78 USDT",
         pnlValue: -24.78
       }
@@ -1064,15 +1107,27 @@ function getPreviewAccountPayload(error) {
 }
 
 async function buildBinanceAccountPayload() {
-  const [account, income] = await Promise.all([
+  const [account, income, positionRiskRows] = await Promise.all([
     loadFuturesAccount(),
-    signedFapiRequest("/fapi/v1/income", { limit: "1000" })
+    signedFapiRequest("/fapi/v1/income", { limit: "1000" }),
+    loadPositionRiskRows()
   ]);
 
   const assets = Array.isArray(account.assets) ? account.assets : [];
   const usdt = assets.find((asset) => asset.asset === "USDT") || {};
-  const positions = (Array.isArray(account.positions) ? account.positions : [])
-    .filter((position) => Math.abs(toNumber(position.positionAmt)) > 0)
+  const riskRowsBySymbol = new Map(
+    positionRiskRows
+      .filter((position) => Math.abs(toNumber(position.positionAmt)) > 0)
+      .map((position) => [position.symbol, position])
+  );
+  const accountPositionsBySymbol = new Map(
+    (Array.isArray(account.positions) ? account.positions : [])
+      .filter((position) => Math.abs(toNumber(position.positionAmt)) > 0)
+      .map((position) => [position.symbol, position])
+  );
+  const positionSymbols = [...new Set([...accountPositionsBySymbol.keys(), ...riskRowsBySymbol.keys()])];
+  const positions = positionSymbols
+    .map((symbol) => mergePositionRisk(accountPositionsBySymbol.get(symbol) || riskRowsBySymbol.get(symbol), riskRowsBySymbol))
     .map(normalizePosition)
     .sort((a, b) => Math.abs(b.pnlValue) - Math.abs(a.pnlValue));
   const recentIncomeRows = (Array.isArray(income) ? income : [])
